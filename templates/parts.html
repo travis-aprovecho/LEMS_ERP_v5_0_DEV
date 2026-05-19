@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Parts Master · LEMS ERP{% endblock %}
+{% block breadcrumb %}<a href="/">Home</a> › Parts{% endblock %}
+{% block page_title %}Parts Master{% endblock %}
+{% block topbar_actions %}
+  <a href="/parts/new" class="btn btn-primary btn-sm">+ New Part</a>
+{% endblock %}
+
+{% block content %}
+{% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
+
+<div class="card">
+  <form method="get" class="filters-bar" id="filter-form">
+    <input type="search" name="search" value="{{ search }}"
+           placeholder="Search ID, desc, supplier…" style="min-width:180px">
+    <select name="type_f">
+      <option value="">All types</option>
+      {% for t in types %}
+      <option value="{{ t }}" {% if type_f == t %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+    <select name="cat_f">
+      <option value="">All categories</option>
+      {% for c in categories %}
+      <option value="{{ c }}" {% if cat_f == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <label style="display:flex;align-items:center;gap:5px;font-size:11px;
+                  color:var(--text1);cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400">
+      <input type="checkbox" name="show_obsolete" value="1"
+             {% if show_obsolete == '1' %}checked{% endif %}
+             onchange="this.form.submit()"
+             style="width:auto;accent-color:var(--accent)">
+      Show obsolete
+    </label>
+    <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+    {% if search or type_f or cat_f %}
+    <a href="/parts" class="btn btn-ghost btn-sm">Clear</a>
+    {% endif %}
+    <span class="muted small ml-auto">{{ parts|length }}</span>
+  </form>
+
+  <div class="table-wrap">
+    <table id="parts-table">
+      <thead>
+        <tr>
+          <th class="sortable" data-col="0">Part ID <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="1">Type <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="2">Cat <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="3">Description <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="4" style="text-align:right">Labor Hrs <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="5">UOM <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="6" style="text-align:right">Pkg Qty <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="7" style="text-align:right">Pkg Cost <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="8" style="text-align:right">Unit Cost <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="9" style="text-align:right">On Hand <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="10">Supplier <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="11">Status <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="12" style="text-align:center">In BOMs <span class="sort-icon">↕</span></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for p in parts %}
+      {% set is_built = p.type in ['ASSY','FAB'] %}
+      <tr class="{% if p.status == 'OBSOLETE' %}obsolete-row{% endif %}" id="row-{{ loop.index }}">
+
+        <td class="part-id-cell">
+          <a href="/parts/{{ p.part_id }}/edit" style="color:var(--text1);text-decoration:none">
+            {{ p.part_id }}</a>
+        </td>
+        <td><span class="badge badge-{{ p.type }}">{{ p.type }}</span></td>
+        <td class="muted small">{{ p.category }}</td>
+
+        {# Description — editable for all #}
+        <td contenteditable="true" data-part-id="{{ p.part_id }}" data-field="plain_desc"
+            style="min-width:130px;max-width:240px" title="Click to edit">{{ p.plain_desc }}</td>
+
+        {# Labor Hrs — editable for all types #}
+        <td class="mono text-right" contenteditable="true"
+            data-part-id="{{ p.part_id }}" data-field="labor_hrs"
+            title="Click to edit">{{ p.labor_hrs }}</td>
+
+        {# UOM — locked for ASSY/FAB #}
+        {% if is_built %}
+        <td class="muted small text-center">—</td>
+        {% else %}
+        <td contenteditable="true" data-part-id="{{ p.part_id }}" data-field="uom"
+            style="max-width:40px" title="Click to edit">{{ p.uom }}</td>
+        {% endif %}
+
+        {# Pkg Size — locked for ASSY/FAB #}
+        {% if is_built %}
+        <td class="muted text-right">—</td>
+        {% else %}
+        <td class="mono text-right" contenteditable="true"
+            data-part-id="{{ p.part_id }}" data-field="pkg_size">{{ p.pkg_size }}</td>
+        {% endif %}
+
+        {# Pkg Cost — locked for ASSY/FAB #}
+        {% if is_built %}
+        <td class="muted text-right">—</td>
+        {% else %}
+        <td class="mono text-right" contenteditable="true"
+            data-part-id="{{ p.part_id }}" data-field="pkg_cost">${{ '%.2f'|format(p.pkg_cost) }}</td>
+        {% endif %}
+
+        {# Unit Cost — never directly editable #}
+        <td class="mono text-right text-accent" title="Auto-calculated">${{ '%.2f'|format(p.unit_cost) }}</td>
+
+        {# On Hand — locked for ASSY/FAB #}
+        {% if is_built %}
+        <td class="muted text-right">—</td>
+        {% else %}
+        <td class="mono text-right" contenteditable="true"
+            data-part-id="{{ p.part_id }}" data-field="qty_on_hand">{{ p.qty_on_hand }}</td>
+        {% endif %}
+
+        {# Supplier — locked for ASSY/FAB #}
+        {% if is_built %}
+        <td class="muted small text-center">—</td>
+        {% else %}
+        <td contenteditable="true" data-part-id="{{ p.part_id }}" data-field="supplier"
+            style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="Click to edit">{{ p.supplier }}</td>
+        {% endif %}
+
+        {# Status #}
+        <td>
+          <select onchange="setStatus('{{ p.part_id }}', this.value)"
+                  style="padding:2px 4px;font-size:10px;width:auto;background:transparent;
+                         border:1px solid var(--border2);border-radius:3px;color:var(--text0)">
+            <option value="ACTIVE"   {% if p.status == 'ACTIVE'   %}selected{% endif %}>ACTIVE</option>
+            <option value="OBSOLETE" {% if p.status == 'OBSOLETE' %}selected{% endif %}>OBSOLETE</option>
+          </select>
+        </td>
+
+        {# In BOMs — parent count #}
+        <td style="text-align:center">
+          {% set pc = parent_counts.get(p.part_id, 0) %}
+          {% if pc > 0 %}
+            <a href="/parts/{{ p.part_id }}/where-used"
+               style="color:var(--text2);text-decoration:none;font-family:'IBM Plex Mono',monospace;font-size:11px"
+               title="Used in {{ pc }} BOM(s)">{{ pc }}</a>
+          {% else %}
+            <span class="muted small">—</span>
+          {% endif %}
+        </td>
+
+        {# Actions #}
+        <td style="white-space:nowrap">
+          <div class="flex gap-8">
+            <a href="/parts/{{ p.part_id }}/edit" class="btn btn-ghost btn-xs" title="Edit">✎</a>
+            <a href="/parts/{{ p.part_id }}/where-used" class="btn btn-ghost btn-xs"
+               style="color:var(--text2)" title="Where used">↑</a>
+            {% if is_built %}
+            <a href="/bom?part_id={{ p.part_id }}" class="btn btn-ghost btn-xs"
+               style="color:var(--blue)" title="Open BOM">⋈</a>
+            {% else %}
+            <a href="/bom?add_to={{ p.part_id }}" class="btn btn-ghost btn-xs"
+               style="color:var(--text3)" title="Add to a BOM">+⋈</a>
+            {% endif %}
+            <button onclick="deletePart('{{ p.part_id }}')"
+                    class="btn btn-ghost btn-xs" style="color:var(--red)">✕</button>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="14" class="muted text-center" style="padding:24px">
+        No parts found.
+        {% if search or type_f or cat_f %}
+          <a href="/parts" style="color:var(--accent)">Clear filters →</a>
+        {% else %}
+          <a href="/parts/new" style="color:var(--accent)">Add the first one →</a>
+        {% endif %}
+      </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/parts.js"></script>
+{% endblock %}

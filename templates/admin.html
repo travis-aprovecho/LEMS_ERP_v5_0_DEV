@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Admin · LEMS ERP{% endblock %}
+{% block breadcrumb %}<a href="/">Home</a> › Admin{% endblock %}
+{% block page_title %}Admin / Data{% endblock %}
+
+{% block content %}
+
+<div class="grid-2">
+
+  <!-- Import (additive backup restore) -->
+  <div class="card">
+    <div class="card-header"><h2>Import Data</h2></div>
+    <p class="muted small" style="margin-bottom:14px">
+      Accepts a LEMS backup <code>.csv</code>, a LEMS <code>.db</code> SQLite file,
+      or an <code>.xlsx</code> workbook with sheets named <em>parts</em>, <em>bom</em>,
+      <em>projects</em>, <em>project_items</em>. Existing records are overwritten by matching ID.
+      A full cost rollup runs automatically after import.
+    </p>
+    <div id="drop-zone" style="border:2px dashed var(--border2);border-radius:10px;
+        padding:32px;text-align:center;cursor:pointer;
+        transition:border-color 0.2s,background 0.2s;margin-bottom:14px"
+      ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='var(--bg3)'"
+      ondragleave="this.style.borderColor='var(--border2)';this.style.background=''"
+      ondrop="handleDrop(event)"
+      onclick="document.getElementById('import-file').click()">
+      <div style="font-size:28px;margin-bottom:8px;opacity:0.6">📂</div>
+      <div class="muted small">Drop <strong>.csv</strong>, <strong>.db</strong>, or <strong>.xlsx</strong> here, or click to browse</div>
+      <div id="drop-filename" style="margin-top:10px;color:var(--accent);font-family:'IBM Plex Mono',monospace;font-size:12px"></div>
+    </div>
+    <input type="file" id="import-file" accept=".csv,.db,.xlsx" style="display:none" onchange="fileSelected(this)">
+    <div class="flex gap-10" style="margin-bottom:16px">
+      <button onclick="doImport()" class="btn btn-primary" id="import-btn" disabled>Import</button>
+      <span class="muted small" id="import-type-note" style="align-self:center"></span>
+    </div>
+    <div id="import-results" style="display:none">
+      <div style="border-top:1px solid var(--border);padding-top:14px">
+        <div id="import-stats" class="mono small" style="line-height:2.2"></div>
+        <div id="import-errors" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export -->
+  <div class="card">
+    <div class="card-header"><h2>Export / Backup</h2></div>
+    <p class="muted small" style="margin-bottom:16px">
+      Download a full CSV backup of all parts, BOM rows, projects, and project items.
+    </p>
+    <a href="/admin/export-csv" class="btn btn-secondary">⬇ Download Backup CSV</a>
+  </div>
+
+</div>
+
+<!-- Master Data Replace — full-width, prominent warning -->
+<div class="card" style="border:2px solid var(--red,#c0392b);margin-top:4px">
+  <div class="card-header">
+    <h2 style="color:var(--red,#c0392b)">⚠ Master Data Replace</h2>
+  </div>
+  <p class="small" style="margin-bottom:10px">
+    Use this when importing an <strong>edited master parts / BOM file</strong>.
+    Unlike the standard import above, this operation <strong>completely wipes all
+    existing parts and BOM rows</strong> before loading the new file — so renamed,
+    deleted, or re-IDed parts can never ghost back into the database.
+  </p>
+  <p class="muted small" style="margin-bottom:14px">
+    Projects and project items are <strong>not</strong> affected.
+    Only <code>PART</code> and <code>BOM</code> rows in the CSV are loaded.
+    A full cost rollup runs automatically after import.
+    <strong>This cannot be undone — download a backup first if needed.</strong>
+  </p>
+  <div id="master-drop-zone" style="border:2px dashed var(--red,#c0392b);border-radius:10px;
+      padding:28px;text-align:center;cursor:pointer;
+      transition:border-color 0.2s,background 0.2s;margin-bottom:14px"
+    ondragover="event.preventDefault();this.style.background='#fff0f0'"
+    ondragleave="this.style.background=''"
+    ondrop="handleMasterDrop(event)"
+    onclick="document.getElementById('master-file').click()">
+    <div style="font-size:26px;margin-bottom:8px;opacity:0.6">🗂</div>
+    <div class="muted small">Drop master <strong>.csv</strong> here, or click to browse</div>
+    <div id="master-filename" style="margin-top:10px;color:var(--red,#c0392b);font-family:'IBM Plex Mono',monospace;font-size:12px"></div>
+  </div>
+  <input type="file" id="master-file" accept=".csv" style="display:none" onchange="masterFileSelected(this)">
+  <div class="flex gap-10" style="margin-bottom:16px;align-items:center">
+    <button onclick="doMasterImport()" class="btn btn-danger" id="master-btn" disabled
+            style="background:var(--red,#c0392b);color:#fff;border-color:var(--red,#c0392b)">
+      ⚠ Wipe &amp; Replace
+    </button>
+    <span class="muted small" id="master-type-note" style="align-self:center"></span>
+  </div>
+  <div id="master-results" style="display:none">
+    <div style="border-top:1px solid var(--border);padding-top:14px">
+      <div id="master-stats" class="mono small" style="line-height:2.2"></div>
+      <div id="master-errors" style="margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Flags & Warnings -->
+<div class="card">
+  <div class="card-header">
+    <h2>System Flags &amp; Warnings</h2>
+    <button onclick="loadFlags()" class="btn btn-ghost btn-sm ml-auto">↻ Refresh</button>
+    <button onclick="exportFlagsCSV()" class="btn btn-ghost btn-sm">⬇ CSV</button>
+    <button onclick="printFlags()" class="btn btn-ghost btn-sm">🖨 Print</button>
+    <span id="flags-total" class="card-meta"></span>
+  </div>
+
+  <div id="flags-container">
+    <div class="muted small" style="padding:8px 0">Loading…</div>
+  </div>
+</div>
+
+{% endblock %}
+{% block extra_js %}
+<script src="/static/js/admin.js"></script>
+{% endblock %}

@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BOM — {{ part.part_id }}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+    :root {
+      --text0: #1a1e24; --text1: #3a4450; --text2: #6a7a8a;
+      --border: #d0d5de; --accent: #007a60; --bg2: #f5f7fa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'IBM Plex Sans', sans-serif; font-size: 11pt; color: var(--text0); background: #fff; }
+    .page { max-width: 900px; margin: 0 auto; padding: 32px 40px; }
+
+    .doc-header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      margin-bottom: 24px; padding-bottom: 16px;
+      border-bottom: 2px solid var(--text0);
+    }
+    .company-block .name { font-size: 16pt; font-weight: 600; }
+    .company-block .sub  { font-size: 9pt; color: var(--text2); margin-top: 3px; }
+    .doc-meta { text-align: right; }
+    .doc-meta .doc-type { font-size: 14pt; font-weight: 600; color: var(--accent);
+                          text-transform: uppercase; letter-spacing: 0.06em; }
+    .doc-meta .doc-id   { font-family: 'IBM Plex Mono', monospace; font-size: 10pt;
+                          color: var(--text1); margin-top: 4px; word-break: break-all; }
+
+    .meta-row {
+      display: flex; gap: 24px; margin-bottom: 24px;
+      padding: 12px 16px; background: var(--bg2);
+      border: 1px solid var(--border); border-radius: 6px; flex-wrap: wrap;
+    }
+    .meta-cell .label { font-size: 8pt; font-weight: 600; text-transform: uppercase;
+                        letter-spacing: 0.1em; color: var(--text2); margin-bottom: 2px; }
+    .meta-cell .value { font-size: 11pt; }
+    .mono { font-family: 'IBM Plex Mono', monospace; font-size: 10pt; }
+
+    .section-title {
+      font-size: 9pt; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.12em; color: var(--text2);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 5px; margin: 20px 0 12px;
+    }
+
+    /* BOM tree */
+    .bom-tree-print { font-family: 'IBM Plex Mono', monospace; font-size: 9pt; }
+    .bom-row-p {
+      display: flex; gap: 8px; padding: 3px 0;
+      border-bottom: 1px solid #eee; align-items: baseline;
+    }
+    .b-pid   { flex: 3; color: var(--text1); word-break: break-word; overflow-wrap: anywhere; }
+    .b-desc  { flex: 4; color: var(--text2); }
+    .b-qty   { min-width: 48px; text-align: right; color: #8a5800; }
+    .b-cost  { min-width: 88px; text-align: right; color: var(--accent); }
+    .optional-p { opacity: 0.6; font-style: italic; }
+    .opt-badge { display:inline-block; font-size:7pt; font-weight:600; letter-spacing:.04em;
+                 background:#f0e8fa; color:#6030a0; border-radius:3px; padding:1px 5px;
+                 font-style:normal; margin-left:5px; vertical-align:middle; }
+
+    /* Flat list table */
+    table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-bottom: 6px; }
+    th {
+      background: var(--bg2); color: var(--text2); font-size: 8pt; font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border);
+    }
+    td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: #fafafa; }
+    .right { text-align: right; }
+    .mc { font-family: 'IBM Plex Mono', monospace; font-size: 9pt; }
+
+    .badge {
+      display: inline-block; padding: 1px 6px; border-radius: 3px;
+      font-size: 8pt; font-weight: 600; letter-spacing: 0.05em;
+      font-family: 'IBM Plex Mono', monospace; text-transform: uppercase;
+    }
+    .b-ASSY { background: #e0eefa; color: #1a6aaa; }
+    .b-FAB  { background: #e8f5e0; color: #2a7010; }
+    .b-PRT  { background: #fdf0d8; color: #8a5800; }
+    .b-RAW  { background: #f0e8fa; color: #6030a0; }
+
+    .total-row { background: var(--bg2) !important; font-weight: 600; }
+
+    .doc-footer {
+      margin-top: 36px; padding-top: 10px; border-top: 1px solid var(--border);
+      font-size: 8.5pt; color: var(--text2); display: flex; justify-content: space-between;
+    }
+
+    .print-controls {
+      position: fixed; top: 16px; right: 16px; display: flex; gap: 8px; z-index: 999;
+    }
+    .print-controls button, .print-controls a {
+      padding: 8px 16px; border-radius: 6px; font-size: 12px;
+      font-family: 'IBM Plex Sans', sans-serif; cursor: pointer;
+      border: 1px solid; text-decoration: none;
+    }
+    .btn-print { background: #007a60; color: #fff; border-color: #007a60; }
+    .btn-back  { background: #fff; color: #3a4450; border-color: #d0d5de; }
+
+    @media print {
+      .print-controls { display: none; }
+      .page { padding: 18px 22px; }
+      @page { margin: 1.5cm; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="print-controls">
+  <a href="/bom?part_id={{ part.part_id }}" class="btn-back">← Back to BOM</a>
+  <button onclick="window.print()" class="btn-print">🖨 Print / Save PDF</button>
+</div>
+
+<div class="page">
+
+  <div class="doc-header">
+    <div class="company-block">
+      <div class="name">ARC / LEMS</div>
+      <div class="sub">Air Resources Center · Local Emissions Monitoring System</div>
+    </div>
+    <div class="doc-meta">
+      <div class="doc-type">BOM Report</div>
+      <div class="doc-id">{{ part.part_id }}</div>
+    </div>
+  </div>
+
+  <div class="meta-row">
+    <div class="meta-cell">
+      <div class="label">Assembly</div>
+      <div class="value mono">{{ part.part_id }}</div>
+    </div>
+    <div class="meta-cell">
+      <div class="label">Description</div>
+      <div class="value">{{ part.plain_desc or '—' }}</div>
+    </div>
+    <div class="meta-cell">
+      <div class="label">Type / Cat</div>
+      <div class="value">{{ part.type }} / {{ part.category }}</div>
+    </div>
+    <div class="meta-cell">
+      <div class="label">Rolled Cost</div>
+      <div class="value mono" style="color:var(--accent);font-weight:600">
+        ${{ '%.4f'|format(rolled_cost) }}
+      </div>
+    </div>
+    <div class="meta-cell">
+      <div class="label">Rolled Labor Hrs</div>
+      <div class="value mono">{{ '%.2f'|format(bom_summary.labor_hrs or 0) }} hrs</div>
+    </div>
+  </div>
+
+  <!-- BOM Tree -->
+  <div class="section-title">Bill of Materials — Hierarchy View</div>
+  <div class="bom-tree-print" id="bom-tree"></div>
+
+  <!-- Flat parts list -->
+  {% if flat %}
+  <div class="section-title" style="page-break-before:auto">
+    Flat Parts List — All Components
+    <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text1)">
+      ({{ flat|selectattr('optional','equalto',false)|list|length }} unique parts)
+    </span>
+  </div>
+  <table>
+    <thead><tr>
+      <th>Part ID</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Supplier</th>
+      <th>Supplier P/N</th>
+      <th>UOM</th>
+      <th class="right">Total Qty</th>
+      <th class="right">Unit Cost</th>
+      <th class="right">Ext Cost</th>
+    </tr></thead>
+    <tbody>
+    {% set ns = namespace(total=0) %}
+    {% for row in flat %}
+    {% if not row.optional %}
+    {% set ext = row.unit_cost * row.total_qty %}
+    {% set ns.total = ns.total + ext %}
+    <tr>
+      <td class="mc">{{ row.part_id }}</td>
+      <td><span class="badge b-{{ row.type }}">{{ row.type }}</span></td>
+      <td>{{ row.plain_desc or '—' }}</td>
+      <td class="mc" style="font-size:8pt;color:var(--text2);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ row.supplier or '—' }}</td>
+      <td class="mc" style="font-size:8pt;color:var(--text2);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ row.supplier_pn or '' }}">{{ (row.supplier_pn or '—')[:25] }}{% if row.supplier_pn and row.supplier_pn|length > 25 %}…{% endif %}</td>
+      <td class="mc">{{ row.uom }}</td>
+      <td class="mc right">{{ row.total_qty }}</td>
+      <td class="mc right">${{ '%.4f'|format(row.unit_cost) }}</td>
+      <td class="mc right" style="color:var(--accent)">${{ '%.4f'|format(ext) }}</td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+    {% for row in flat %}
+    {% if row.optional %}
+    <tr style="opacity:0.5;font-style:italic">
+      <td class="mc">{{ row.part_id }}</td>
+      <td><span class="badge b-{{ row.type }}">{{ row.type }}</span></td>
+      <td>{{ row.plain_desc or '—' }} <span class="opt-badge">★ optional</span></td>
+      <td class="mc" style="font-size:8pt;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ row.supplier or '—' }}</td>
+      <td class="mc" style="font-size:8pt;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ row.supplier_pn or '' }}">{{ (row.supplier_pn or '—')[:25] }}{% if row.supplier_pn and row.supplier_pn|length > 25 %}…{% endif %}</td>
+      <td class="mc">{{ row.uom }}</td>
+      <td class="mc right">—</td>
+      <td class="mc right">${{ '%.4f'|format(row.unit_cost) }}</td>
+      <td class="mc right muted">—</td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+    <tr class="total-row">
+      <td colspan="6" style="text-align:right;color:var(--text2);font-size:10pt">
+        Total Material Cost
+      </td>
+      <td></td>
+      <td class="mc right" style="color:var(--accent)">${{ '%.4f'|format(rolled_cost) }}</td>
+    </tr>
+    </tbody>
+  </table>
+  {% endif %}
+
+  <div class="doc-footer">
+    <span>LEMS ERP BOM Report · {{ part.part_id }}</span>
+    <span>Optional items (qty=0) excluded from cost</span>
+  </div>
+
+</div>
+
+<script>
+const TREE = {{ tree | tojson }};
+
+function renderTree(node, container, depth) {
+  const row = document.createElement('div');
+  row.className = 'bom-row-p' + (node.optional ? ' optional-p' : '');
+
+  const pidEl = document.createElement('span');
+  pidEl.className = 'b-pid';
+  pidEl.style.paddingLeft = (depth * 16) + 'px';
+  pidEl.textContent = (depth > 0 ? '╼ ' : '') + node.part_id;
+  row.appendChild(pidEl);
+
+  const desc = document.createElement('span');
+  desc.className = 'b-desc';
+  desc.textContent = node.plain_desc || '';
+  if (node.optional) {
+    const badge = document.createElement('span');
+    badge.className = 'opt-badge';
+    badge.textContent = '★ optional';
+    desc.appendChild(badge);
+  }
+  row.appendChild(desc);
+
+  const qty = document.createElement('span');
+  qty.className = 'b-qty';
+  qty.textContent = depth > 0 ? '×' + node.bom_qty : '';
+  row.appendChild(qty);
+
+  const cost = document.createElement('span');
+  cost.className = 'b-cost';
+  cost.textContent = node.unit_cost > 0 ? '$' + parseFloat(node.unit_cost).toFixed(4) : '—';
+  row.appendChild(cost);
+
+  container.appendChild(row);
+  if (node.children) {
+    node.children.forEach(c => renderTree(c, container, depth + 1));
+  }
+}
+
+renderTree(TREE, document.getElementById('bom-tree'), 0);
+</script>
+</body>
+</html>

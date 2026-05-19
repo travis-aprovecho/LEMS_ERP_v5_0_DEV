@@ -1,0 +1,449 @@
+{% extends "base.html" %}
+{% block title %}{{ project.project_id }} · LEMS ERP{% endblock %}
+{% block breadcrumb %}<a href="/">Home</a> › <a href="/projects">Projects</a> › {{ project.project_id }}{% endblock %}
+{% block page_title %}{{ project.project_id }}{% endblock %}
+{% block topbar_actions %}
+  <button onclick="cloneProject()" class="btn btn-secondary btn-sm" title="Duplicate this project">⎘ Clone</button>
+  <a href="/print/project/{{ project.project_id }}" target="_blank"
+     class="btn btn-secondary btn-sm">🖨 Packing List</a>
+  <a href="/projects/{{ project.project_id }}/quote"
+     class="btn btn-secondary btn-sm">💰 Quote</a>
+  <a href="/projects/{{ project.project_id }}/pick-list"
+     class="btn btn-secondary btn-sm">◱ Pick List</a>
+{% endblock %}
+
+{% block content %}
+{% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
+
+<!-- Editable project metadata -->
+<div class="card" style="margin-bottom:14px">
+  <div class="card-header">
+    <h2>Project Configuration</h2>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:start">
+
+    <div class="form-group">
+      <label>Customer</label>
+      <div class="editable-meta" data-field="customer" data-project="{{ project.project_id }}"
+           contenteditable="true" style="padding:6px 10px;border:1px solid var(--border2);
+           border-radius:6px;background:var(--bg2);font-size:13px;min-height:36px;cursor:text">
+        {{ project.customer or '' }}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Status</label>
+      <select onchange="saveMetaSelect('{{ project.project_id }}','status',this.value)"
+              style="padding:7px 10px">
+        {% for s in ['ACTIVE','INACTIVE','COMPLETE'] %}
+        <option value="{{ s }}" {% if project.status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+
+    <div class="form-group">
+      <label>Notes</label>
+      <div class="editable-meta" data-field="notes" data-project="{{ project.project_id }}"
+           contenteditable="true" style="padding:6px 10px;border:1px solid var(--border2);
+           border-radius:6px;background:var(--bg2);font-size:13px;min-height:36px;cursor:text">
+        {{ project.notes or '' }}
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Summary stats — costs only; pricing lives in the Quote tab -->
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+  <div class="stat-card">
+    <div class="stat-val" style="font-size:18px">${{ '%.2f'|format(total_material) }}</div>
+    <div class="stat-label">Material Cost</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val" style="font-size:18px;color:var(--amber)">{{ '%.1f'|format(total_labor_hrs) }}</div>
+    <div class="stat-label">Labor Hours</div>
+  </div>
+
+</div>
+
+<!-- Order sheet -->
+<div class="card">
+  <div class="card-header">
+    <h2>Order Sheet</h2>
+    <div class="flex gap-8 ml-auto" style="font-size:11px;flex-wrap:wrap">
+      <span class="item-type-badge type-STANDARD">■ Standard</span>
+      <span class="item-type-badge type-OPTION">■ Option</span>
+      <span class="item-type-badge type-ADDITIONAL">■ Additional</span>
+      <span class="item-type-badge type-DELETED">■ Deleted</span>
+    </div>
+  </div>
+
+  <!-- Add item -->
+  <div style="display:flex;gap:10px;align-items:flex-end;
+              margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+    <div class="part-search-wrap" style="flex:1">
+      <label style="display:block;margin-bottom:5px">Add Part / Assembly</label>
+      <input type="text" id="pi-search" placeholder="Search by part ID or description…"
+             autocomplete="off" oninput="searchParts(this.value)">
+      <div class="part-dropdown" id="part-dropdown"></div>
+      <input type="hidden" id="pi-part-id">
+    </div>
+    <div style="width:88px">
+      <label style="display:block;margin-bottom:5px">Qty</label>
+      <input type="number" id="pi-qty" value="1" step="any" min="1">
+    </div>
+    <div style="width:120px">
+      <label style="display:block;margin-bottom:5px">Type</label>
+      <select id="pi-type">
+        {% for t in item_types %}
+        <option value="{{ t }}" {% if t == 'ADDITIONAL' %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button onclick="addItem()" class="btn btn-primary">Add</button>
+  </div>
+
+  {% if optional_items %}
+  <!-- Suggested Optional Items panel -->
+  <div class="opt-suggest-panel" id="opt-suggest-panel">
+    <div class="opt-suggest-header" onclick="toggleOptPanel()">
+      <span class="opt-suggest-icon">✦</span>
+      <span>Suggested Optional Items</span>
+      <span class="opt-suggest-count">{{ optional_items|length }} available</span>
+      <span class="opt-suggest-caret" id="opt-caret">▸</span>
+    </div>
+    <div class="opt-suggest-body" id="opt-suggest-body" style="display:none">
+      <div class="opt-suggest-grid">
+        {% for opt in optional_items %}
+        <div class="opt-item-card" id="opt-card-{{ loop.index }}">
+          <div class="opt-item-top">
+            <span class="badge badge-{{ opt.type }}">{{ opt.type }}</span>
+            <code class="opt-item-pid">{{ opt.part_id }}</code>
+            <span class="opt-item-cost mono">${{ '%.2f'|format(opt.unit_cost) }}</span>
+          </div>
+          <div class="opt-item-desc">{{ opt.plain_desc or '—' }}</div>
+          <div class="opt-item-source muted">via: {{ opt.source_parts | join(', ') }}</div>
+          <div class="opt-item-actions">
+            <select class="opt-item-type-sel" id="opt-type-{{ loop.index }}">
+              <option value="OPTION" selected>OPTION</option>
+              <option value="ADDITIONAL">ADDITIONAL</option>
+              <option value="STANDARD">STANDARD</option>
+            </select>
+            <input type="number" class="opt-item-qty" id="opt-qty-{{ loop.index }}" value="1" min="1" step="any">
+            <button onclick="addOptional('{{ opt.part_id }}', 'opt-type-{{ loop.index }}', 'opt-qty-{{ loop.index }}', 'opt-card-{{ loop.index }}')"
+                    class="btn btn-primary btn-xs">+ Add</button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Category</th>
+        <th>Part ID</th>
+        <th>Type</th>
+        <th>Description</th>
+        <th style="text-align:right">Qty</th>
+        <th style="padding-left:14px">Box #</th>
+        <th style="text-align:right">Labor Hrs</th>
+        <th style="text-align:right">Unit Cost</th>
+<th style="text-align:right">Ext Material Cost</th>
+        <th style="text-align:right" title="Line item discount %">% Disc</th>
+        <th style="text-align:right" title="Flat line item discount ($)">$ Disc</th>
+        <th>UOM</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+      {% set ns = namespace(cur_type='') %}
+      {% for item in line_items %}
+      {% if item.item_type != ns.cur_type %}
+      {% set ns.cur_type = item.item_type %}
+      <tr class="type-section-header type-header-{{ item.item_type }}">
+        <td colspan="12" style="padding:6px 12px;font-size:10px;font-weight:600;
+            letter-spacing:0.1em;text-transform:uppercase">
+          {{ item.item_type }}
+        </td>
+      </tr>
+      {% endif %}
+      <tr class="order-row item-type-row-{{ item.item_type }}"
+          data-id="{{ item.id }}">
+        <td>
+          <select onchange="setItemType({{ item.id }}, this.value)"
+                  class="item-type-select type-{{ item.item_type }}"
+                  style="font-size:10px;padding:2px 4px;width:auto;
+                         background:transparent;border:1px solid var(--border2);border-radius:3px">
+            {% for t in item_types %}
+            <option value="{{ t }}" {% if item.item_type == t %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td class="mono small">
+          {% if item.type in ['FAB','ASSY'] %}
+            <a href="/bom?part_id={{ item.part_id }}"
+               style="color:var(--blue);text-decoration:none">{{ item.part_id }}</a>
+            <button onclick="openBomModal('{{ item.part_id }}','{{ item.plain_desc|replace("'","\\'")|e }}')"
+                    style="background:none;border:none;cursor:pointer;padding:0 0 0 5px;
+                           vertical-align:middle;font-size:14px" data-tip="Explode BOM">🧨</button>
+          {% else %}
+            <a href="/parts/{{ item.part_id }}/edit"
+               style="color:var(--text2);text-decoration:none">{{ item.part_id }}</a>
+          {% endif %}
+        </td>
+        <td><span class="badge badge-{{ item.type }}">{{ item.type }}</span></td>
+        <td class="{% if item.item_type == 'DELETED' %}muted{% endif %}">
+          {{ item.plain_desc or '—' }}
+        </td>
+        <td style="text-align:right">
+          <input type="number" value="{{ item.qty }}" step="any" min="0"
+                 style="width:65px;text-align:right;padding:3px 6px"
+                 onchange="updateItemQty({{ item.id }}, this.value)">
+        </td>
+        <td style="padding-left:14px">
+          {% if item.item_type == 'DELETED' %}
+            <span class="muted">—</span>
+          {% else %}
+          <input type="text" value="{{ item.box_num or '' }}"
+                 class="box-assign-input"
+                 onchange="updateItemBox({{ item.id }}, this.value)">
+          {% endif %}
+        </td>
+        <td class="mono text-right text-amber {% if item.item_type == 'DELETED' %}muted{% endif %}">
+          {% if item.item_type == 'DELETED' %}—{% else %}{{ '%.2f'|format(item.labor_hrs) }} hrs{% endif %}
+        </td>
+        <td class="mono text-right text-accent">${{ '%.2f'|format(item.unit_cost) }}</td>
+        <td class="mono text-right {% if item.item_type == 'DELETED' %}muted{% endif %}"{% if item.item_type == 'DELETED' %} style="color:var(--red)!important"{% endif %}>
+          {% if item.item_type == 'DELETED' %}−${{ '%.2f'|format((item.unit_cost * item.qty)|abs) }}{% else %}${{ '%.2f'|format(item.unit_cost * item.qty) }}{% endif %}
+        </td>
+        <td style="text-align:right">
+          <input type="number" value="{{ item.discount_pct if item.discount_pct else '' }}" step="any" min="0" placeholder="%"
+                 style="width:50px;text-align:right;padding:3px"
+                 {% if item.item_type == 'DELETED' %}disabled{% endif %}
+                 onchange="updateItemDiscount({{ item.id }}, this.value, null)">
+        </td>
+        <td style="text-align:right">
+          <input type="number" value="{{ item.discount_flat if item.discount_flat else '' }}" step="any" min="0" placeholder="$"
+                 style="width:65px;text-align:right;padding:3px"
+                 {% if item.item_type == 'DELETED' %}disabled{% endif %}
+                 onchange="updateItemDiscount({{ item.id }}, null, this.value)">
+        </td>
+        <td class="muted small">{{ item.uom }}</td>
+        <td>
+          <button onclick="removeItem({{ item.id }})"
+                  class="btn btn-ghost btn-xs" style="color:var(--red)">✕</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="12" class="muted text-center" style="padding:28px">
+        No items — add assemblies or parts above.
+      </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Custom / Quoted Items -->
+<div class="card" style="margin-top:16px">
+  <div class="card-header">
+    <h2>Custom / Quoted Items</h2>
+    <span class="card-meta">Additional costs included in the quote — not physical kit parts</span>
+    <button onclick="addOtherItem()" class="btn btn-ghost btn-sm ml-auto">+ Add Row</button>
+  </div>
+  <div class="table-wrap">
+    <table id="other-items-table" style="table-layout:fixed;width:100%">
+      <colgroup>
+        <col style="width:auto">
+        <col style="width:100px">
+        <col style="width:90px">
+        <col style="width:70px">
+        <col style="width:70px">
+        <col style="width:70px">
+        <col style="width:75px">
+        <col style="width:30px">
+      </colgroup>
+      <thead><tr>
+        <th>Description</th>
+        <th style="text-align:right">Cost ($)</th>
+        <th style="text-align:right">Labor Hrs</th>
+        <th style="text-align:center" title="Apply markup to this item in the quote">Markup</th>
+        <th>Box #</th>
+        <th style="text-align:right">Disc %</th>
+        <th style="text-align:right">Disc $</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="other-items-body">
+      {% for oi in other_items %}
+      <tr data-oi-id="{{ oi.id }}">
+        <td><input type="text" value="{{ oi.description }}" style="width:100%"
+                   onchange="updateOtherItem({{ oi.id }}, 'description', this.value)"></td>
+        <td><input type="number" value="{{ oi.cost or '' }}" step="0.01" min="0" placeholder="0"
+                   style="width:100%;text-align:right"
+                   onchange="updateOtherItem({{ oi.id }}, 'cost', this.value)"></td>
+        <td><input type="number" value="{{ oi.labor_hrs or '' }}" step="0.1" min="0" placeholder="0"
+                   style="width:100%;text-align:right"
+                   onchange="updateOtherItem({{ oi.id }}, 'labor_hrs', this.value)"></td>
+        <td style="text-align:center">
+          <input type="checkbox" {% if oi.apply_markup %}checked{% endif %}
+                 style="width:14px;height:14px;accent-color:var(--amber)"
+                 onchange="updateOtherItem({{ oi.id }}, 'apply_markup', this.checked ? 1 : 0)">
+        </td>
+        <td><input type="text" value="{{ oi.box_num or '' }}" style="width:100%"
+                   onchange="updateOtherItem({{ oi.id }}, 'box_num', this.value)"></td>
+        <td><input type="number" value="{{ oi.discount_pct or '' }}" step="0.1" min="0" max="100"
+                   placeholder="%" style="width:100%;text-align:right"
+                   onchange="updateOtherItem({{ oi.id }}, 'discount_pct', this.value)"></td>
+        <td><input type="number" value="{{ oi.discount_flat or '' }}" step="0.01" min="0"
+                   placeholder="$" style="width:100%;text-align:right"
+                   onchange="updateOtherItem({{ oi.id }}, 'discount_flat', this.value)"></td>
+        <td>
+          <button onclick="deleteOtherItem({{ oi.id }}, this)"
+                  class="btn btn-ghost btn-xs" style="color:var(--red)">✕</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr id="other-items-empty"><td colspan="9" class="muted text-center" style="padding:20px">
+        No custom items yet — click "+ Add Row" to add one.
+      </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Order Totals — spans BOM items + Custom/Quoted Items -->
+<div class="card" style="margin-top:16px;background:var(--bg2)">
+  <div class="card-header"><h2>Order Totals</h2></div>
+  <table style="width:340px;margin-left:auto;border-collapse:collapse;font-size:12px">
+    <tr style="border-bottom:1px solid var(--border2)">
+      <td class="muted" style="padding:5px 12px 5px 0">BOM Material Cost</td>
+      <td class="mono text-right" style="padding:5px 0">${{ '%.2f'|format(total_material) }}</td>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border2)">
+      <td class="muted" style="padding:5px 12px 5px 0">BOM Labor Hours</td>
+      <td class="mono text-right text-amber" style="padding:5px 0">
+        {{ '%.2f'|format(total_labor_hrs - (other_items | sum(attribute='labor_hrs') | float)) }} hrs
+      </td>
+    </tr>
+    {% set other_cost = other_items | sum(attribute='cost') | float %}
+    {% set other_lbr  = other_items | sum(attribute='labor_hrs') | float %}
+    {% if other_items %}
+    <tr style="border-bottom:1px solid var(--border2)">
+      <td class="muted" style="padding:5px 12px 5px 0">Custom Items Cost</td>
+      <td class="mono text-right" style="padding:5px 0">${{ '%.2f'|format(other_cost) }}</td>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border2)">
+      <td class="muted" style="padding:5px 12px 5px 0">Custom Items Labor Hours</td>
+      <td class="mono text-right text-amber" style="padding:5px 0">{{ '%.2f'|format(other_lbr) }} hrs</td>
+    </tr>
+    {% endif %}
+    <tr style="border-top:2px solid var(--border)">
+      <td style="padding:7px 12px 7px 0;font-weight:600">Total Material + Custom Costs</td>
+      <td class="mono text-right" style="padding:7px 0;font-weight:600">${{ '%.2f'|format(total_material + other_cost) }}</td>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border2)">
+      <td style="padding:5px 12px 5px 0;font-weight:600">Total Labor Hours</td>
+      <td class="mono text-right text-amber" style="padding:5px 0;font-weight:600">{{ '%.2f'|format(total_labor_hrs) }} hrs</td>
+    </tr>
+  </table>
+</div>
+
+<!-- Packing Metadata -->
+<div class="card" style="margin-top:16px">
+  <div class="card-header">
+    <h2>Packing Metadata</h2>
+  </div>
+  <div style="display:flex;gap:32px;padding:16px">
+    <!-- Boxes -->
+    <div style="flex:1">
+      <h3 style="font-size:13px;margin-bottom:8px;font-weight:600">Boxes / Crates</h3>
+      <div class="table-wrap">
+      <table id="boxes-table">
+        <thead><tr>
+          <th>Box #</th>
+          <th>Weight (lbs)</th>
+          <th>Pallet #</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+        {% for b in boxes %}
+        <tr>
+          <td><input type="text" class="b-num" value="{{ b.box_num }}"></td>
+          <td><input type="number" class="b-wt" value="{{ b.weight }}" oninput="recalcPalletWeights()"></td>
+          <td><input type="text" class="b-pal" value="{{ b.pallet_num }}"></td>
+          <td style="text-align:center"><button onclick="this.parentElement.parentElement.remove();recalcPalletWeights()" class="btn btn-ghost btn-xs text-red">✕</button></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <button onclick="addBoxRow()" class="btn btn-secondary btn-sm mt-8">+ Add Box</button>
+    </div>
+    
+    <!-- Pallets -->
+    <div style="flex:1">
+      <h3 style="font-size:13px;margin-bottom:8px;font-weight:600">Pallets</h3>
+      <div class="table-wrap">
+      <table id="pallets-table">
+        <thead><tr>
+          <th>Pallet #</th>
+          <th>Tare (lbs)</th>
+          <th>Dimensions</th>
+          <th>Gross Total</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+        {% for p in pallets %}
+        {% set pallet_boxes = boxes | selectattr('pallet_num', 'equalto', p.pallet_num) | list %}
+        {% set box_weight = pallet_boxes | sum(attribute='weight') %}
+        {% set total_pallet_weight = p.weight + box_weight %}
+        <tr>
+          <td><input type="text" class="p-num" value="{{ p.pallet_num }}"></td>
+          <td><input type="number" class="p-wt" value="{{ p.weight }}" oninput="recalcPalletWeights()"></td>
+          <td><input type="text" class="p-dim" value="{{ p.dimensions }}"></td>
+          <td class="pallet-gross" style="font-weight:600;color:var(--accent);vertical-align:middle">{{ '%.1f'|format(total_pallet_weight) }} lbs</td>
+          <td style="text-align:center"><button onclick="this.parentElement.parentElement.remove();recalcPalletWeights()" class="btn btn-ghost btn-xs text-red">✕</button></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <button onclick="addPalletRow()" class="btn btn-secondary btn-sm mt-8">+ Add Pallet</button>
+    </div>
+  </div>
+  
+  <div style="padding:16px;border-top:1px solid var(--border);text-align:right">
+    <button onclick="savePacking()" class="btn btn-primary" style="background:var(--accent);border-color:var(--accent);color:#fff">Save Packing Data</button>
+  </div>
+</div>
+
+{# ── Exploded BOM modal ── #}
+<div id="bom-modal-backdrop" class="bom-modal-backdrop"
+     onclick="if(event.target===this)closeBomModal()">
+  <div class="bom-modal" role="dialog" aria-modal="true" aria-labelledby="bom-modal-title">
+    <div class="bom-modal-header">
+      <div>
+        <div class="bom-modal-title" id="bom-modal-title">Exploded BOM</div>
+        <div class="bom-modal-pid" id="bom-modal-pid"></div>
+      </div>
+      <button class="bom-modal-close" onclick="closeBomModal()" aria-label="Close">✕</button>
+    </div>
+    <div class="bom-modal-body" id="bom-modal-body">
+      <div style="padding:40px;text-align:center;color:var(--text2)">Loading…</div>
+    </div>
+    <div class="bom-modal-footer">
+      <span id="bom-modal-count" class="muted small"></span>
+      <a id="bom-modal-link" href="#" style="font-size:11px;color:var(--accent)">Open in BOM Editor →</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/project-detail.js"></script>
+{% endblock %}

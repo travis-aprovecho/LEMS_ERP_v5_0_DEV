@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · LEMS ERP{% endblock %}
+{% block breadcrumb %}<a href="/">Home</a>{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="grid-4" style="margin-bottom:20px">
+  <div class="stat-card">
+    <div class="stat-val">{{ stats.parts }}</div>
+    <div class="stat-label">Total Parts</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val">{{ stats.assemblies }}</div>
+    <div class="stat-label">Assemblies / FABs</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val">{{ stats.bom_rows }}</div>
+    <div class="stat-label">BOM Relationships</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val">{{ stats.projects }}</div>
+    <div class="stat-label">Active Projects</div>
+  </div>
+</div>
+
+<div class="grid-2">
+
+  <!-- Quick actions -->
+  <div class="card">
+    <div class="card-header"><h2>Quick Actions</h2></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <a href="/parts/new"    class="btn btn-secondary" style="justify-content:center;padding:14px">
+        <span style="font-size:18px">⬡</span> New Part
+      </a>
+      <a href="/bom"          class="btn btn-secondary" style="justify-content:center;padding:14px">
+        <span style="font-size:18px">⋈</span> BOM Editor
+      </a>
+      <a href="/projects/new" class="btn btn-secondary" style="justify-content:center;padding:14px">
+        <span style="font-size:18px">◫</span> New Project
+      </a>
+      <a href="/inventory"    class="btn btn-secondary" style="justify-content:center;padding:14px">
+        <span style="font-size:18px">◱</span> Stock / Inventory
+      </a>
+      <a href="/admin"        class="btn btn-secondary" style="justify-content:center;padding:14px">
+        <span style="font-size:18px">⚙</span> Import Data
+      </a>
+      <a href="/parts"        class="btn btn-secondary" style="justify-content:center;padding:14px">
+        <span style="font-size:18px">⬡</span> Parts Master
+      </a>
+    </div>
+
+    {% if recent_projects %}
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+      <div class="muted small" style="margin-bottom:10px;text-transform:uppercase;
+           letter-spacing:0.1em;font-size:10px;font-weight:600">Recent Projects</div>
+      {% for p in recent_projects %}
+      <div style="display:flex;align-items:center;gap:10px;padding:6px 0;
+                  border-bottom:1px solid var(--border);cursor:pointer"
+           onclick="location.href='/projects/{{ p.project_id }}'">
+        <span class="badge badge-{{ p.status }}">{{ p.status }}</span>
+        <span class="mono small" style="flex:1">{{ p.project_id }}</span>
+        <span style="color:var(--text1);font-size:12px">{{ p.customer or '—' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Flags / Warnings -->
+  <div class="card" id="flags-card">
+    <div class="card-header">
+      <h2>System Flags</h2>
+      <span id="flags-total" class="card-meta"></span>
+      <button onclick="loadFlags()" class="btn btn-ghost btn-sm ml-auto">↻ Refresh</button>
+    </div>
+    <div id="flags-body">
+      <div class="muted small" style="padding:8px 0">Loading…</div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function loadFlags() {
+  const body = document.getElementById('flags-body');
+  body.innerHTML = '<div class="muted small" style="padding:8px 0">Loading…</div>';
+  try {
+    const data = await fetch('/api/flags').then(r => r.json());
+    const total = data.total;
+    document.getElementById('flags-total').textContent =
+      total === 0 ? 'all clear' : `${total} issue${total !== 1 ? 's' : ''}`;
+
+    if (total === 0) {
+      body.innerHTML = `<div style="text-align:center;padding:28px;color:var(--accent)">
+        <div style="font-size:24px;margin-bottom:8px">✓</div>
+        <div>No issues found.</div>
+      </div>`;
+      return;
+    }
+
+    const labels = {
+      zero_cost:        '⚠ Zero-cost purchased parts',
+      empty_bom:        '⚠ FAB/ASSY with no BOM children',
+      orphaned:         '◌ PRT/RAW not in any BOM',
+      obsolete_bom:     '✕ Obsolete parts in active BOMs',
+      missing_desc:     '◻ Missing descriptions',
+      missing_supplier: '◻ PRT/RAW without supplier',
+    };
+    const severity = {
+      zero_cost: 'error', empty_bom: 'error', obsolete_bom: 'error',
+      orphaned: 'warn', missing_desc: 'warn', missing_supplier: 'warn',
+    };
+
+    let html = '';
+    for (const [key, rows] of Object.entries(data.flags)) {
+      if (!rows.length) continue;
+      const sev = severity[key] || 'warn';
+      const color = sev === 'error' ? 'var(--red)' : 'var(--amber)';
+      const SHOW = 8;
+      html += `<div style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="color:${color};font-size:11px;font-weight:600">${labels[key] || key}</span>
+          <span style="color:${color};font-family:'IBM Plex Mono',monospace;font-size:10px">${rows.length}</span>
+        </div>
+        <div id="dash-flag-list-${key}" style="font-size:11px;font-family:'IBM Plex Mono',monospace;
+                    max-height:80px;overflow-y:auto;padding-left:8px">`;
+      rows.forEach((r, idx) => {
+        const link = r.parent_id
+          ? `/bom?part_id=${encodeURIComponent(r.parent_id)}`
+          : (r.type === 'FAB' || r.type === 'ASSY')
+            ? `/bom?part_id=${encodeURIComponent(r.part_id)}`
+            : `/parts/${encodeURIComponent(r.part_id)}/edit`;
+        const hidden = idx >= SHOW ? ' class="dash-flag-overflow" style="display:none"' : '';
+        html += `<div${hidden} style="padding:2px 0;border-bottom:1px solid var(--border);
+                             display:flex;align-items:center;gap:6px">
+          <a href="${link}" style="color:var(--text2);text-decoration:none;flex:1;
+                                   overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+             title="${escapeHtml(r.part_id)}">${escapeHtml(r.part_id)}</a>
+          <span style="color:var(--text3);font-size:10px">${escapeHtml(r.category || '')}</span>
+        </div>`;
+      });
+      if (rows.length > SHOW) {
+        html += `<div style="padding-top:3px">
+          <button onclick="expandDashFlags('${escapeHtml(key)}',this)"
+                  style="background:none;border:none;color:${color};font-size:10px;
+                         cursor:pointer;padding:0;font-family:inherit">
+            ▶ Show all ${rows.length} items
+          </button>
+        </div>`;
+      }
+      html += `</div></div>`;
+    }
+    body.innerHTML = html;
+  } catch(e) {
+    body.innerHTML = '<div class="alert alert-error">Failed to load flags.</div>';
+  }
+}
+
+function expandDashFlags(key, btn) {
+  const list = document.getElementById('dash-flag-list-' + key);
+  if (!list) return;
+  list.querySelectorAll('.dash-flag-overflow').forEach(el => el.style.display = '');
+  list.style.maxHeight = 'none';
+  btn.parentElement.style.display = 'none';
+}
+
+loadFlags();
+</script>
+{% endblock %}

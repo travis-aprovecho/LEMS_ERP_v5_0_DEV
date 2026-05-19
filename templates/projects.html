@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Projects · LEMS ERP{% endblock %}
+{% block breadcrumb %}<a href="/">Home</a> › Projects{% endblock %}
+{% block page_title %}Projects{% endblock %}
+{% block topbar_actions %}
+  <a href="/projects/new" class="btn btn-primary btn-sm">+ New Project</a>
+{% endblock %}
+
+{% block content %}
+{% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
+
+<div class="card">
+  {% if projects %}
+  <div class="table-wrap">
+    <table id="proj-table">
+      <thead><tr>
+        <th class="sortable" data-col="0">Project ID <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="1">Customer <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="2">Status <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="3" style="text-align:right">Material Cost <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="4" style="text-align:right">Labor Hrs <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="5" style="text-align:right">Total Internal Cost <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="7" style="text-align:right">Quoted <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="8" style="text-align:right">GM% <span class="sort-icon">↕</span></th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+      {% for p in projects %}
+      <tr style="cursor:pointer" onclick="location.href='/projects/{{ p.project_id }}'">
+        <td class="mono small">{{ p.project_id }}</td>
+        <td>{{ p.customer or '—' }}</td>
+        <td><span class="badge badge-{{ p.status }}">{{ p.status }}</span></td>
+        <td class="mono text-right">${{ '%.2f'|format(p.total_material) }}</td>
+        <td class="mono text-right text-amber">{{ '%.1f'|format(p.total_labor_hrs) }} hrs</td>
+        <td class="mono text-right">${{ '%.2f'|format(p.total_internal) }}</td>
+        <td class="mono text-right text-accent">${{ '%.2f'|format(p.quoted_total) }}</td>
+        <td class="mono text-right {% if p.quote_margin_pct > 0 %}text-accent{% else %}text-red{% endif %}">
+          {{ '%.1f'|format(p.quote_margin_pct) }}%
+        </td>
+        <td onclick="event.stopPropagation()">
+          <div class="flex gap-8">
+            <a href="/projects/{{ p.project_id }}/edit" class="btn btn-ghost btn-xs" title="Edit">✎</a>
+            <button onclick="cloneProject('{{ p.project_id }}')"
+                    class="btn btn-ghost btn-xs" style="color:var(--text2)" title="Clone">⎘</button>
+            <button onclick="deleteProject('{{ p.project_id }}')"
+                    class="btn btn-ghost btn-xs" style="color:var(--red)" title="Delete">✕</button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:56px;color:var(--text2)">
+    <div style="font-size:36px;margin-bottom:14px">◫</div>
+    <div>No projects yet. <a href="/projects/new" style="color:var(--accent)">Create one →</a></div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function cloneProject(id) {
+  const newId = prompt(`Clone "${id}" to new project ID:`, id + '_COPY');
+  if (!newId) return;
+  const fd = new FormData();
+  fd.append('new_id', newId);
+  const res = await apiFetch(`/projects/${encodeURIComponent(id)}/clone`, fd);
+  if (res.ok) { showToast('Cloned — opening…'); setTimeout(() => location.href=`/projects/${encodeURIComponent(newId)}`, 700); }
+  else showToast(res.msg, 'error');
+}
+
+async function deleteProject(id) {
+  if (!confirm(`Delete project ${id}?\nThis cannot be undone.`)) return;
+  const fd  = new FormData();
+  const res = await apiFetch(`/projects/${encodeURIComponent(id)}/delete`, fd);
+  if (res.ok) { showToast('Project deleted'); location.reload(); }
+  else showToast(res.msg, 'error');
+}
+
+// Column sort
+let sortCol = -1, sortAsc = true;
+document.querySelectorAll('th.sortable').forEach(th => {
+  th.style.cursor = 'pointer';
+  th.addEventListener('click', () => {
+    const col = parseInt(th.dataset.col);
+    if (sortCol === col) sortAsc = !sortAsc;
+    else { sortCol = col; sortAsc = true; }
+    const tbody = document.querySelector('#proj-table tbody');
+    const rows  = [...tbody.querySelectorAll('tr')];
+    rows.sort((a, b) => {
+      const at = a.cells[col]?.textContent.trim().replace(/[$,%\s]/g,'') || '';
+      const bt = b.cells[col]?.textContent.trim().replace(/[$,%\s]/g,'') || '';
+      const an = parseFloat(at), bn = parseFloat(bt);
+      let cmp = (!isNaN(an) && !isNaN(bn)) ? an - bn : at.localeCompare(bt,undefined,{numeric:true});
+      return sortAsc ? cmp : -cmp;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+    document.querySelectorAll('.sort-icon').forEach(s => s.textContent = '↕');
+    th.querySelector('.sort-icon').textContent = sortAsc ? '↑' : '↓';
+  });
+});
+</script>
+{% endblock %}

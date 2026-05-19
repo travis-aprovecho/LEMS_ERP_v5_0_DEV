@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% block title %}{{ 'New Part' if is_new else 'Edit Part' }} · LEMS ERP{% endblock %}
+{% block breadcrumb %}
+  <a href="/">Home</a> › <a href="/parts">Parts</a> ›
+  {{ 'New' if is_new else part.part_id }}
+{% endblock %}
+{% block page_title %}{{ 'New Part' if is_new else 'Edit Part' }}{% endblock %}
+{% block topbar_actions %}
+  {% if not is_new %}
+  <a href="/parts/{{ part.part_id }}/where-used" class="btn btn-secondary btn-sm">↑ Where Used</a>
+  {% if part.type in ['FAB','ASSY'] %}
+  <a href="/bom?part_id={{ part.part_id }}" class="btn btn-secondary btn-sm">⋈ Open BOM</a>
+  <a href="/print/bom/{{ part.part_id }}" class="btn btn-secondary btn-sm" target="_blank">🖨 Print BOM</a>
+  {% endif %}
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+{% if msg %}
+<div class="alert alert-success" style="display:flex;align-items:center;gap:16px">
+  <span>{{ msg }}</span>
+  {% if msg.startswith('Saved:') %}
+  <a href="/parts/{{ msg.split(': ',1)[1] }}/edit"
+     style="color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap;margin-left:auto">
+    View {{ msg.split(': ',1)[1] }} →
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
+
+{% if not is_new and parents %}
+<div class="alert alert-info" style="margin-bottom:12px">
+  <strong>Used in:</strong>
+  {% for par in parents %}
+    <a href="/bom?part_id={{ par.parent_id }}" style="color:var(--blue)">{{ par.parent_id }}</a>
+    <span class="muted small">({{ par.type }})</span>{% if not loop.last %}, {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{% set is_built = not is_new and part.type in ['ASSY','FAB'] %}
+
+<form method="post" action="/parts/save" id="part-form">
+  {% if not is_new %}
+  <input type="hidden" name="orig_part_id" value="{{ part.part_id }}">
+  {% endif %}
+
+  <!-- Identity -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Part Identity</h2>
+      {% if not is_new %}
+      <span class="card-meta mono">{{ part.part_id }}</span>
+      {% endif %}
+    </div>
+
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Type *</label>
+        <select name="type" id="ftype" required onchange="updatePreview();toggleBuilt()">
+          {% for t in types %}
+          <option value="{{ t }}" {% if (part.get('type','PRT') if is_new else part.type) == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Category *</label>
+        <select name="category" id="fcat" required onchange="updatePreview()">
+          {% for c in categories %}
+          <option value="{{ c }}" {% if (part.get('category','STD') if is_new else part.category) == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Base Description *</label>
+        <input type="text" name="base_desc" id="fdesc" required
+               value="{{ part.get('base_desc','') if is_new else part.base_desc }}"
+               placeholder="e.g. BALLVALVE" list="dl-base-desc"
+               oninput="updatePreview();filterDatalist('fdesc','dl-base-desc')"
+               style="text-transform:uppercase">
+        <datalist id="dl-base-desc"></datalist>
+      </div>
+      <div class="form-group">
+        <label>Size / Spec</label>
+        <input type="text" name="size_spec" id="fsize"
+               value="{{ part.get('size_spec','') }}"
+               placeholder="e.g. 0250FNPT-0250MNPT" list="dl-size-spec"
+               oninput="updatePreview();filterDatalist('fsize','dl-size-spec')"
+               style="text-transform:uppercase">
+        <datalist id="dl-size-spec"></datalist>
+      </div>
+      <div class="form-group">
+        <label>Variant</label>
+        <input type="text" name="variant" id="fvar"
+               value="{{ part.get('variant','') }}"
+               placeholder="e.g. BRASS" list="dl-variant"
+               oninput="updatePreview();filterDatalist('fvar','dl-variant')"
+               style="text-transform:uppercase">
+        <datalist id="dl-variant"></datalist>
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select name="status">
+          {% for s in statuses %}
+          <option value="{{ s }}" {% if part.get('status','ACTIVE') == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group full">
+        <label>{% if is_new %}Part ID Preview{% else %}Part ID — editing will rename globally{% endif %}</label>
+        <div class="part-id-preview" id="id-preview">
+          {{ part.part_id if not is_new else '—' }}
+        </div>
+        {% if not is_new %}
+        <div class="muted small" style="margin-top:4px">
+          Changing type/category/base_desc/size/variant above and saving will permanently rename this part
+          and update all BOMs and projects that reference it.
+        </div>
+        {% endif %}
+      </div>
+      <div class="form-group full">
+        <label>Plain Description</label>
+        <input type="text" name="plain_desc" value="{{ part.get('plain_desc','') }}"
+               placeholder="Human-readable description">
+      </div>
+    </div>
+  </div>
+
+  {% if is_built %}
+  {# FAB/ASSY: only labor_hrs is meaningful here — supplier/cost fields hidden #}
+  {# Pass required hidden fields so form submission is complete #}
+  <input type="hidden" name="supplier"    value="{{ part.get('supplier','') }}">
+  <input type="hidden" name="brand_mfg"  value="{{ part.get('brand_mfg','') }}">
+  <input type="hidden" name="supplier_pn" value="{{ part.get('supplier_pn','') }}">
+  <input type="hidden" name="uom"         value="{{ part.get('uom','ea') }}">
+  <input type="hidden" name="pkg_size"    value="{{ part.get('pkg_size',1) }}">
+  <input type="hidden" name="pkg_cost"    value="{{ part.get('pkg_cost',0) }}">
+  <input type="hidden" name="unit_cost"   value="{{ part.get('unit_cost',0) }}">
+  <input type="hidden" name="qty_on_hand" value="{{ part.get('qty_on_hand',0) }}">
+  <div class="card" style="max-width:320px">
+    <div class="card-header">
+      <h2>Labor</h2>
+      <span class="muted small">Costs are derived from BOM rollup</span>
+    </div>
+    <div class="form-group">
+      <label>Labor Hours</label>
+      <input type="number" name="labor_hrs" step="any" min="0"
+             value="{{ part.get('labor_hrs',0) }}"
+             title="Shop labor hours. Calculated at project level only.">
+    </div>
+    {% if not is_new %}
+    <div style="margin-top:10px;font-size:11px;color:var(--text2)">
+      Rolled unit cost: <span class="mono text-accent">${{ '%.4f'|format(part.get('unit_cost',0)) }}</span>
+      (auto-updated on BOM changes)
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  {# PRT/RAW: full supplier + cost card #}
+  <div class="card" id="supplier-card">
+    <div class="card-header"><h2>Primary Supplier / Cost</h2></div>
+    <div class="form-grid-3">
+      <div class="form-group">
+        <label>Supplier</label>
+        <input type="text" name="supplier" value="{{ part.get('supplier','') }}" placeholder="McMaster-Carr">
+      </div>
+      <div class="form-group">
+        <label>Brand / Mfg</label>
+        <input type="text" name="brand_mfg" value="{{ part.get('brand_mfg','') }}">
+      </div>
+      <div class="form-group">
+        <label>Supplier Part #</label>
+        <input type="text" name="supplier_pn" value="{{ part.get('supplier_pn','') }}">
+      </div>
+      <div class="form-group">
+        <label>Unit of Measure</label>
+        <select name="uom" id="fuom">
+          {% for u in uom_options %}
+          <option value="{{ u }}" {% if part.get('uom','ea') == u %}selected{% endif %}>{{ u }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Pkg Size</label>
+        <input type="number" name="pkg_size" id="fpkgsize" step="any" min="0"
+               value="{{ part.get('pkg_size',1) }}" oninput="recalcUnit()">
+      </div>
+      <div class="form-group">
+        <label>Pkg Cost ($)</label>
+        <input type="number" name="pkg_cost" id="fpkgcost" step="any" min="0"
+               value="{{ part.get('pkg_cost',0) }}" oninput="recalcUnit()">
+      </div>
+      <div class="form-group">
+        <label>Unit Cost ($) <span style="font-size:9px;color:var(--accent);text-transform:none;letter-spacing:0" id="unit-cost-note"> — auto from pkg</span></label>
+        <input type="number" name="unit_cost" id="funitcost" step="any" min="0"
+               value="{{ part.get('unit_cost',0) }}" readonly
+               title="Auto-calculated — never directly editable"
+               style="opacity:0.7;cursor:not-allowed">
+      </div>
+      <div class="form-group">
+        <label>Qty On Hand</label>
+        <input type="number" name="qty_on_hand" step="any" min="0"
+               value="{{ part.get('qty_on_hand',0) }}">
+      </div>
+      <div class="form-group">
+        <label>Labor Hours</label>
+        <input type="number" name="labor_hrs" step="any" min="0"
+               value="{{ part.get('labor_hrs',0) }}"
+               title="Labor hours. Costs calculated at project level only.">
+      </div>
+      <div class="form-group">
+        <label>Last Cost Update</label>
+        <input type="date" name="last_cost_date"
+               value="{{ part.get('last_cost_date','') }}"
+               title="Auto-stamped when costs change — edit manually if needed">
+      </div>
+    </div>
+  </div>
+
+  {# Alt supplier card — always visible for PRT/RAW #}
+  <div class="card" id="alt-supplier-card" style="border:1px solid var(--border2)">
+    <div class="card-header">
+      <h2>Alternate Supplier</h2>
+      <label style="display:flex;align-items:center;gap:8px;margin-left:auto;
+                    font-size:12px;font-weight:500;text-transform:none;letter-spacing:0;
+                    color:var(--text1);cursor:pointer">
+        <input type="checkbox" name="use_alt_supplier" id="use-alt-cb" value="1"
+               {% if part.get('use_alt_supplier') %}checked{% endif %}
+               onchange="toggleAltCost()"
+               style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer">
+        Use alternate supplier cost as active price
+      </label>
+    </div>
+    <div class="form-grid-3" id="alt-supplier-fields">
+      <div class="form-group">
+        <label>Alt Supplier</label>
+        <input type="text" name="supplier_2" value="{{ part.get('supplier_2','') }}" placeholder="Digi-Key">
+      </div>
+      <div class="form-group">
+        <label>Alt Brand / Mfg</label>
+        <input type="text" name="brand_mfg_2" value="{{ part.get('brand_mfg_2','') }}">
+      </div>
+      <div class="form-group">
+        <label>Alt Supplier Part #</label>
+        <input type="text" name="supplier_pn_2" value="{{ part.get('supplier_pn_2','') }}">
+      </div>
+      <div class="form-group">
+        <label>Alt Pkg Size</label>
+        <input type="number" name="pkg_size_2" id="fpkgsize2" step="any" min="0"
+               value="{{ part.get('pkg_size_2',1) }}" oninput="recalcAlt()">
+      </div>
+      <div class="form-group">
+        <label>Alt Pkg Cost ($)</label>
+        <input type="number" name="pkg_cost_2" id="fpkgcost2" step="any" min="0"
+               value="{{ part.get('pkg_cost_2',0) }}" oninput="recalcAlt()">
+      </div>
+      <div class="form-group">
+        <label>Alt Unit Cost ($)</label>
+        <input type="number" name="unit_cost_2" id="funitcost2" step="any" min="0"
+               value="{{ part.get('unit_cost_2',0) }}" readonly
+               style="opacity:0.7;cursor:not-allowed">
+      </div>
+    </div>
+    <div id="alt-active-note" style="display:{% if part.get('use_alt_supplier') %}block{% else %}none{% endif %};
+         margin-top:8px;padding:6px 10px;background:var(--accent2);border-radius:6px;
+         font-size:11px;color:var(--accent)">
+      ★ Alternate supplier cost is currently active — this price will be used in BOM rollups.
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="flex gap-12">
+    <button type="submit" class="btn btn-primary">Save Part</button>
+    <a href="/parts" class="btn btn-secondary">Cancel</a>
+    {% if is_new %}
+    <button type="button" onclick="clearAllFields()" class="btn btn-ghost">✕ Clear All</button>
+    {% else %}
+    <button type="button" onclick="deletePart('{{ part.part_id }}')"
+            class="btn btn-danger ml-auto">Delete Part</button>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/part-form.js"></script>
+{% endblock %}

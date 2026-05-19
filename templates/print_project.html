@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ project.project_id }} — Packing List</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+    :root {
+      --text0: #1a1e24;
+      --text1: #3a4450;
+      --text2: #6a7a8a;
+      --border: #d0d5de;
+      --accent: #007a60;
+      --bg2:    #f5f7fa;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      font-size: 11pt;
+      color: var(--text0);
+      background: #fff;
+      padding: 0;
+    }
+
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 32px 40px;
+    }
+
+    /* ── Header ── */
+    .doc-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 28px;
+      padding-bottom: 18px;
+      border-bottom: 2px solid var(--text0);
+    }
+    .company-block .name {
+      font-size: 18pt;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .company-block .sub {
+      font-size: 9pt;
+      color: var(--text2);
+      margin-top: 3px;
+    }
+    .doc-meta { text-align: right; }
+    .doc-meta .doc-type {
+      font-size: 16pt;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .doc-meta .doc-id {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10pt;
+      color: var(--text1);
+      margin-top: 4px;
+    }
+    .doc-meta .doc-date {
+      font-size: 9pt;
+      color: var(--text2);
+      margin-top: 2px;
+    }
+
+    /* ── Info grid ── */
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+      padding: 16px;
+      background: var(--bg2);
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .info-cell .label {
+      font-size: 8pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text2);
+      margin-bottom: 3px;
+    }
+    .info-cell .value {
+      font-size: 11pt;
+      color: var(--text0);
+    }
+    .info-cell .mono { font-family: 'IBM Plex Mono', monospace; }
+
+    /* ── Section headers ── */
+    .section-title {
+      font-size: 9pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 5px;
+      margin-bottom: 12px;
+      margin-top: 24px;
+    }
+
+    /* ── Tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10pt;
+      margin-bottom: 8px;
+    }
+    th {
+      background: var(--bg2);
+      color: var(--text2);
+      font-size: 8pt;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 6px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: #fafafa; }
+    .mono-cell { font-family: 'IBM Plex Mono', monospace; font-size: 9pt; }
+    .badge { display:inline-block; padding:1px 5px; border-radius:3px;
+             font-size:8pt; font-weight:600; letter-spacing:0.04em;
+             font-family:'IBM Plex Mono',monospace; text-transform:uppercase; }
+    .b-ASSY { background:#e0eefa; color:#1a6aaa; }
+    .b-FAB  { background:#e8f5e0; color:#2a7010; }
+    .b-PRT  { background:#fdf0d8; color:#8a5800; }
+    .b-RAW  { background:#f0e8fa; color:#6030a0; }
+    .right { text-align: right; }
+    .muted { color: var(--text2); }
+
+    /* ── BOM tree in print ── */
+    .bom-indent-print {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 8.5pt;
+    }
+    .bom-row { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px solid #eee; }
+    .bom-row:last-child { border-bottom: none; }
+    .bom-row .b-id { flex: 2; color: var(--text1); }
+    .bom-row .b-desc { flex: 3; color: var(--text2); }
+    .bom-row .b-qty { min-width: 50px; text-align: right; color: #8a5800; font-weight: 500; }
+    .bom-row.optional { opacity: 0.55; font-style: italic; }
+
+    /* ── Footer ── */
+    .doc-footer {
+      margin-top: 40px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font-size: 8.5pt;
+      color: var(--text2);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ── Print controls (screen only) ── */
+    .print-controls {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+      z-index: 999;
+    }
+    .print-controls button, .print-controls a {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      border: 1px solid;
+      text-decoration: none;
+    }
+    .btn-print {
+      background: #007a60; color: #fff; border-color: #007a60;
+    }
+    .btn-back {
+      background: #fff; color: #3a4450; border-color: #d0d5de;
+    }
+
+    @media print {
+      .print-controls { display: none; }
+      .page { padding: 18px 22px; }
+      body { font-size: 10pt; }
+      @page { margin: 1.5cm; }
+      .page-break-before { page-break-before: auto; }
+      .page-break-inside-avoid { page-break-inside: avoid; }
+      /* Remove overflow:hidden + border-radius from box cards — Chrome defers them
+         to the next page after a page-break-before, creating a blank page gap */
+      [id^="box-card-"] { overflow: visible !important; border-radius: 0 !important; }
+    }
+    
+    .pack-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 24px;
+    }
+    @media (max-width: 600px) {
+      .pack-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="print-controls">
+  <a href="/projects/{{ project.project_id }}" class="btn-back">← Back</a>
+  <button onclick="window.print()" class="btn-print">🖨 Print / Save PDF</button>
+</div>
+
+<div class="page">
+
+  <!-- Header -->
+  <div class="doc-header">
+    <div class="company-block">
+      <div class="name">Aprovecho Research Center</div>
+      <div class="sub">Laboratory Emissions Monitoring System</div>
+    </div>
+    <div class="doc-meta">
+      <div class="doc-type">Packing List</div>
+      <div class="doc-id">{{ project.project_id }}</div>
+      <div class="doc-date">{{ project.created_at[:10] if project.created_at else '' }}</div>
+    </div>
+  </div>
+
+  <!-- Info grid -->
+  <div class="info-grid" style="grid-template-columns: 1fr 1fr;">
+    <div class="info-cell">
+      <div class="label">Customer / Recipient</div>
+      <div class="value">{{ project.customer or '—' }}</div>
+    </div>
+    <div class="info-cell">
+      <div class="label">Status</div>
+      <div class="value">{{ project.status }}</div>
+    </div>
+  </div>
+
+  {% if project.notes %}
+  <div style="margin-bottom:20px;padding:10px 14px;background:var(--bg2);
+              border-left:3px solid var(--accent);border-radius:0 4px 4px 0;font-size:10pt">
+    {{ project.notes }}
+  </div>
+  {% endif %}
+
+  <!-- Line items summary -->
+  <div class="section-title">Kit Contents (Top Level)</div>
+
+  {% set type_order = ['STANDARD', 'OPTION', 'ADDITIONAL'] %}
+  {% set type_labels = {
+      'STANDARD':   'Standard Package',
+      'OPTION':     'Options',
+      'ADDITIONAL': 'Additional Items'
+  } %}
+
+  <table>
+    <thead><tr>
+      <th>Type</th>
+      <th>Part ID</th>
+      <th>Description</th>
+      <th class="right">Qty</th>
+      <th style="padding-left:14px">Box #</th>
+    </tr></thead>
+    <tbody>
+    {% for itype in type_order %}
+    {% set group = line_items | selectattr('item_type', 'equalto', itype) | list %}
+    {% if group %}
+    <tr style="background:#f5f7fa">
+      <td colspan="5" style="font-weight:700;font-size:9pt;text-transform:uppercase;
+                              letter-spacing:0.1em;padding:5px 8px;color:#1a1e24">
+        {{ type_labels[itype] }}
+      </td>
+    </tr>
+    {% for item in group %}
+    <tr>
+      <td><span class="badge b-{{ item.type }}">{{ item.type }}</span></td>
+      <td class="mono-cell">{{ item.part_id }}</td>
+      <td>{{ item.plain_desc or '—' }}</td>
+      <td class="mono-cell right font-bold" style="font-weight:600">{{ item.qty }}</td>
+      <td style="padding-left:14px;font-weight:600">{{ item.box_num or '—' }}</td>
+    </tr>
+    {% endfor %}
+    {% endif %}
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Packing Metadata -->
+  {% if boxes or pallets %}
+  <div class="section-title" style="page-break-before:always">Pallet &amp; Box Summary</div>
+  <div class="pack-grid">
+    {% if pallets %}
+    <div>
+      <h3 style="font-size:11px;color:var(--text1);margin-bottom:6px">PALLETS</h3>
+      <table>
+        <thead><tr><th>Pallet #</th><th>Total Weight (lbs)</th><th>Dimensions</th></tr></thead>
+        <tbody>
+        {% for p in pallets %}
+        {% set pallet_boxes = boxes | selectattr('pallet_num', 'equalto', p.pallet_num) | list %}
+        {% set total_weight = p.weight + (pallet_boxes | sum(attribute='weight')) %}
+        <tr>
+          <td>{{ p.pallet_num }}</td>
+          <td>{{ '%.1f'|format(total_weight) }}</td>
+          <td>{{ p.dimensions or '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    {% if boxes %}
+    <div>
+      <h3 style="font-size:11px;color:var(--text1);margin-bottom:6px">BOXES</h3>
+      <table>
+        <thead><tr><th>Box #</th><th>Weight (lbs)</th><th>Pallet #</th></tr></thead>
+        <tbody>
+        {% for b in boxes %}
+        <tr>
+          <td>{{ b.box_num }}</td>
+          <td>{{ '%.1f'|format(b.weight) }}</td>
+          <td>{{ b.pallet_num or '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Box by Box view -->
+  <div>
+    <div class="section-title" style="font-size:12pt;border-bottom:2px solid var(--text0);page-break-before:always;margin-top:0">Box-by-Box Detailed Manifest</div>
+    
+    {% set grouped_items = [] %}
+    
+    {# Collect all unique box assignments, keeping unassigned items separate #}
+    {% set all_box_nums = [] %}
+    {% for b in boxes %}{% if b.box_num not in all_box_nums %}{% set _ = all_box_nums.append(b.box_num) %}{% endif %}{% endfor %}
+    {% for item in line_items %}
+      {% if item.box_num and item.box_num not in all_box_nums %}
+        {% set _ = all_box_nums.append(item.box_num) %}
+      {% endif %}
+    {% endfor %}
+    {% if '' not in all_box_nums %}{% set _ = all_box_nums.append('') %}{% endif %}
+    
+    {% for current_box in all_box_nums|sort %}
+      {% set box_items = line_items | selectattr('box_num', 'equalto', current_box) | list %}
+      {% if box_items and (box_items | rejectattr('item_type', 'equalto', 'DELETED') | list | length > 0) %}
+      <div style="margin-top:16px;border:1px solid var(--border);border-radius:6px;overflow:hidden" id="box-card-{{ loop.index }}">
+        <div style="background:var(--bg2);padding:10px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:12pt;font-weight:600;text-transform:uppercase">
+            {% if current_box %}BOX {{ current_box }}{% else %}UNASSIGNED ITEMS{% endif %}
+          </div>
+          
+          {% set box_meta = boxes | selectattr('box_num', 'equalto', current_box) | list %}
+          {% if box_meta %}
+          <div style="font-size:9pt;color:var(--text2)">
+            {{ 'Weight: %.1f lbs'|format(box_meta[0].weight) if box_meta[0].weight else '' }}
+            {{ ' · Pallet: ' ~ box_meta[0].pallet_num if box_meta[0].pallet_num else '' }}
+          </div>
+          {% endif %}
+        </div>
+        
+        <div style="padding:16px">
+          {% for item in box_items %}
+            {% if item.item_type != 'DELETED' %}
+            <div style="margin-bottom: 16px; {% if not loop.last %}border-bottom: 1px dashed var(--border); padding-bottom: 16px{% endif %}">
+              <div style="display:flex;align-items:flex-start;margin-bottom:8px">
+                <div style="flex:1">
+                  <span class="badge b-{{ item.type }}" style="margin-right:8px">{{ item.type }}</span>
+                  <span class="mono-cell" style="font-weight:600;font-size:10.5pt">{{ item.part_id }}</span>
+                  <span style="margin-left:8px;color:var(--text1)">{{ item.plain_desc }}</span>
+                </div>
+                <div style="font-size:11pt;font-weight:600;color:var(--accent);min-width:60px;text-align:right">
+                  × {{ item.qty }}
+                </div>
+              </div>
+              
+              {% if item.tree and item.tree.children %}
+              <div style="margin-top:8px;background:#fafafa;padding:10px 14px;border-radius:4px;border:1px solid #eee">
+                <div style="font-size:8pt;text-transform:uppercase;letter-spacing:0.1em;color:var(--text2);margin-bottom:6px;font-weight:600">Included Parts:</div>
+                <div class="bom-indent-print" id="tree-{{ item.id }}"></div>
+              </div>
+              {% endif %}
+            </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <!-- Footer -->
+  <div class="doc-footer">
+    <span>Generated by LEMS ERP · {{ project.project_id }}</span>
+    <span>Packing List · Internal costs redacted</span>
+  </div>
+
+</div>
+
+<script>
+const TREES = [
+  {% for item in line_items %}
+  {% if item.tree and item.tree.children %}
+  { id: 'tree-{{ item.id }}', data: {{ item.tree | tojson }} },
+  {% endif %}
+  {% endfor %}
+];
+
+function renderPrintTree(node, container, depth) {
+  if (node.optional || node.bom_qty === 0) return;
+
+  const row  = document.createElement('div');
+  row.className = 'bom-row';
+
+  const idEl = document.createElement('span');
+  idEl.className = 'b-id';
+  idEl.style.paddingLeft = (depth * 16) + 'px';
+  idEl.textContent = (depth > 0 ? '╼ ' : '') + node.part_id;
+  row.appendChild(idEl);
+
+  const desc = document.createElement('span');
+  desc.className = 'b-desc';
+  desc.textContent = node.plain_desc || '';
+  row.appendChild(desc);
+
+  const qty = document.createElement('span');
+  qty.className = 'b-qty';
+  qty.textContent = depth > 0 ? '×' + node.bom_qty : '';
+  row.appendChild(qty);
+
+  container.appendChild(row);
+
+  if (node.children) {
+    node.children.forEach(child => renderPrintTree(child, container, depth + 1));
+  }
+}
+
+TREES.forEach(t => {
+  const el = document.getElementById(t.id);
+  if (el) renderPrintTree(t.data, el, 0);
+});
+
+// Strip overflow:hidden from box cards before printing — Chrome defers
+// overflow:hidden elements after page-break-before, creating blank pages.
+window.addEventListener('beforeprint', () => {
+  document.querySelectorAll('[id^="box-card-"]').forEach(el => {
+    el.style.overflow = 'visible';
+    el.style.borderRadius = '0';
+  });
+});
+window.addEventListener('afterprint', () => {
+  document.querySelectorAll('[id^="box-card-"]').forEach(el => {
+    el.style.overflow = '';
+    el.style.borderRadius = '';
+  });
+});
+</script>
+</body>
+</html>

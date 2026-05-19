@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block breadcrumb %}<a href="/">Home</a> <span class="breadcrumb-sep">›</span> <a href="/admin">Admin</a> <span class="breadcrumb-sep">›</span>{% endblock %}
+{% block page_title %}Audit Log{% endblock %}
+
+{% block topbar_actions %}
+<a href="/api/audit/export?entity_type={{ f_entity_type }}&entity_id={{ f_entity_id }}&user={{ f_user }}&date_from={{ f_date_from }}&date_to={{ f_date_to }}"
+   class="btn btn-secondary btn-sm">↓ Export CSV</a>
+{% endblock %}
+
+{% block content %}
+
+{# ── Filters ── #}
+<div class="card" style="margin-bottom:14px">
+  <form method="get" action="/audit" class="filters-bar" style="flex-wrap:wrap;gap:10px">
+    <select name="entity_type" onchange="this.form.submit()" style="width:160px">
+      <option value="">All types</option>
+      {% for t in ['part','bom','project','project_item','project_other_item','quote'] %}
+      <option value="{{ t }}" {% if f_entity_type == t %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="entity_id" value="{{ f_entity_id }}"
+           placeholder="Entity ID (e.g. PRT-CAL-HANDPUMP)" style="width:240px">
+    <select name="user" style="width:160px">
+      <option value="">All users</option>
+      {% for u in users %}
+      <option value="{{ u }}" {% if f_user == u %}selected{% endif %}>{{ u }}</option>
+      {% endfor %}
+    </select>
+    <input type="date" name="date_from" value="{{ f_date_from }}" style="width:150px">
+    <input type="date" name="date_to"   value="{{ f_date_to }}"   style="width:150px">
+    <button class="btn btn-primary btn-sm" type="submit">Filter</button>
+    <a href="/audit" class="btn btn-secondary btn-sm">Clear</a>
+  </form>
+</div>
+
+{# ── Results ── #}
+<div class="card" style="padding:0">
+  {% if rows %}
+  <div class="table-wrap" style="border-radius:10px">
+    <table id="audit-table">
+      <thead>
+        <tr>
+          <th style="width:148px">Timestamp</th>
+          <th style="width:110px">User</th>
+          <th style="width:150px">Type</th>
+          <th style="width:220px">Entity</th>
+          <th style="width:65px">Action</th>
+          <th style="width:180px;white-space:nowrap">Field</th>
+          <th style="width:140px">Old value</th>
+          <th style="width:140px">New value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="audit-row audit-{{ r.action }}">
+          <td class="mono small" style="color:var(--text2);white-space:nowrap">{{ r.ts }}</td>
+          <td style="font-weight:500">{{ r.user }}</td>
+          <td>
+            <span style="font-size:11px;font-family:'IBM Plex Mono',monospace;
+                         color:var(--text2);font-weight:400;letter-spacing:0">
+              {{ r.entity_type }}
+            </span>
+          </td>
+          <td class="mono small">
+            {% if r.entity_type == 'part' %}
+            <a href="/parts/{{ r.entity_id }}/edit" style="color:var(--accent)">{{ r.entity_id }}</a>
+            {% elif r.entity_type == 'bom' %}
+            <a href="/bom?part_id={{ r.entity_id }}" style="color:var(--blue)">{{ r.entity_id }}</a>
+            {% elif r.entity_type in ('project','project_item','project_other_item') %}
+            <a href="/projects/{{ r.entity_id.split('/')[0] }}"
+               style="color:var(--text0)">{{ r.entity_id }}</a>
+            {% elif r.entity_type == 'quote' %}
+            <a href="/projects/{{ r.entity_id }}/quote"
+               style="color:var(--text0)">{{ r.entity_id }}</a>
+            {% else %}
+            {{ r.entity_id }}
+            {% endif %}
+          </td>
+          <td>
+            {% if r.action == 'create' %}
+            <span style="color:var(--accent);font-weight:500">create</span>
+            {% elif r.action == 'delete' %}
+            <span style="color:var(--red);font-weight:500">delete</span>
+            {% else %}
+            <span style="color:var(--text1)">update</span>
+            {% endif %}
+          </td>
+          <td class="mono small" style="color:var(--text2);white-space:nowrap">{{ r.field or '—' }}</td>
+          <td class="mono small" style="color:var(--red);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="{{ r.old_val or '' }}">{{ r.old_val or '—' }}</td>
+          <td class="mono small" style="color:var(--accent);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="{{ r.new_val or '' }}">{{ r.new_val or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Pagination #}
+  <div style="display:flex;justify-content:space-between;align-items:center;
+              padding:10px 16px;border-top:1px solid var(--border)">
+    <span class="muted small">Showing {{ rows|length }} entries</span>
+    <div style="display:flex;gap:8px">
+      {% if offset > 0 %}
+      <a href="/audit?entity_type={{ f_entity_type }}&entity_id={{ f_entity_id }}&user={{ f_user }}&date_from={{ f_date_from }}&date_to={{ f_date_to }}&offset={{ [offset - page, 0]|max }}"
+         class="btn btn-secondary btn-sm">← Newer</a>
+      {% endif %}
+      {% if has_more %}
+      <a href="/audit?entity_type={{ f_entity_type }}&entity_id={{ f_entity_id }}&user={{ f_user }}&date_from={{ f_date_from }}&date_to={{ f_date_to }}&offset={{ offset + page }}"
+         class="btn btn-secondary btn-sm">Older →</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% else %}
+  <div style="text-align:center;padding:48px;color:var(--text2)">
+    <div style="font-size:28px;margin-bottom:12px">📋</div>
+    <div style="font-size:14px">No log entries match the current filters.</div>
+    {% if f_entity_type or f_entity_id or f_user or f_date_from or f_date_to %}
+    <a href="/audit" class="btn btn-secondary btn-sm" style="margin-top:16px">Clear filters</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/audit.js"></script>
+{% endblock %}

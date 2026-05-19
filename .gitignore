@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE Settings
+.vscode/
+.idea/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases
+*.db
+*.db-shm
+*.db-wal
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Project specific
+antigravity erp dev/

@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block title %}Pick List · {{ project.project_id }} · LEMS ERP{% endblock %}
+{% block breadcrumb %}<a href="/">Home</a> › <a href="/projects">Projects</a> › <a href="/projects/{{ project.project_id }}">{{ project.project_id }}</a> › Pick List{% endblock %}
+{% block page_title %}Pick List{% endblock %}
+{% block topbar_actions %}
+  <a href="/projects/{{ project.project_id }}" class="btn btn-secondary btn-sm">← Project</a>
+  <button onclick="window.print()" class="btn btn-secondary btn-sm">🖨 Print</button>
+  <button onclick="commitPicks()" class="btn btn-primary btn-sm" id="commit-btn">✓ Commit Picks</button>
+  <span class="cost-display" style="font-size:16px">${{ '%.2f'|format(total) }}</span>
+  <span class="cost-sub">material total</span>
+{% endblock %}
+
+{% block content %}
+
+<!-- Summary -->
+<div class="grid-4" style="margin-bottom:16px">
+  <div class="stat-card">
+    <div class="stat-val">{{ pick|length }}</div>
+    <div class="stat-label">Unique Parts</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val" style="color:var(--red)">{{ shortage|length }}</div>
+    <div class="stat-label">Shortages</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val">{{ pick|selectattr('on_order','gt',0)|list|length }}</div>
+    <div class="stat-label">On Order</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val">${{ '%.2f'|format(total) }}</div>
+    <div class="stat-label">Material Cost</div>
+  </div>
+</div>
+
+{% if shortage %}
+<div class="alert alert-error" style="margin-bottom:14px">
+  <strong>{{ shortage|length }} shortage(s)</strong> — parts needed exceed stock + on-order quantities.
+  <a href="/inventory?shortages=1" style="color:var(--red);margin-left:8px">View inventory →</a>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header">
+    <h2>{{ project.project_id }} — Pick List</h2>
+    <span class="card-meta">{{ project.customer or '—' }} · PRT + RAW only · DELETED items excluded</span>
+    <div class="ml-auto flex gap-8">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;
+                    color:var(--text1);cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400">
+        <input type="checkbox" id="show-shortage-only" style="width:auto;accent-color:var(--accent)"
+               onchange="filterShortage(this.checked)">
+        Shortages only
+      </label>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table id="pick-table">
+      <thead>
+        <tr>
+          <th class="sortable" data-col="0">Part ID <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="1">Cat <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="2">Type <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="3">Description <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="4" style="max-width:120px">Supplier <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="5" style="max-width:110px">Supplier P/N <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="6">UOM <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="7" style="text-align:right">Need <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="8" style="text-align:right">On Hand <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="9" style="text-align:right">On Order <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="10">ETA <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="11" style="text-align:right">Shortage <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="12" style="text-align:right">Unit Cost <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="13" style="text-align:right">Ext Cost <span class="sort-icon">↕</span></th>
+          <th>Pick ✓</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for p in pick %}
+      <tr class="pick-row {% if p.shortage > 0 %}row-shortage{% endif %} {% if p.picked %}picked{% endif %}"
+          data-shortage="{{ p.shortage }}"
+          data-part-id="{{ p.part_id }}"
+          data-qty="{{ p.total_qty }}"
+          data-on-hand="{{ p.on_hand }}"
+          data-originally-picked="{{ 'true' if p.picked else 'false' }}">
+        <td class="mono small">
+          <a href="/parts/{{ p.part_id }}/edit"
+             style="color:var(--text2);text-decoration:none" title="{{ p.part_id }}">
+            {{ p.part_id }}</a>
+        </td>
+        <td class="muted small">{{ p.category }}</td>
+        <td><span class="badge badge-{{ p.type }}">{{ p.type }}</span></td>
+        <td>{{ p.plain_desc or '—' }}</td>
+        <td class="muted small" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.supplier or '—' }}</td>
+        <td class="mono small muted" style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ p.supplier_pn }}">
+          {% if p.supplier_pn and (p.supplier_pn.startswith('http://') or p.supplier_pn.startswith('https://')) %}
+            <a href="{{ p.supplier_pn }}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">{{ p.supplier_pn[:25] }}{% if p.supplier_pn|length > 25 %}…{% endif %}</a>
+          {% else %}{{ p.supplier_pn or '—' }}{% endif %}
+        </td>
+        <td class="muted small">{{ p.uom }}</td>
+        <td class="mono text-right">{{ p.total_qty }}</td>
+        <td class="mono text-right {% if p.on_hand <= 0 %}text-red{% else %}text-accent{% endif %}">
+          {{ p.on_hand }}</td>
+        <td class="mono text-right text-amber">
+          {{ p.on_order if p.on_order else '—' }}</td>
+        <td class="mono small muted">{{ p.order_eta or '—' }}</td>
+        <td class="mono text-right {% if p.shortage > 0 %}text-red{% else %}text-accent{% endif %}">
+          {% if p.shortage > 0 %}
+            <strong>{{ p.shortage }}</strong>
+          {% else %}—{% endif %}
+        </td>
+        <td class="mono text-right">${{ '%.2f'|format(p.unit_cost) }}</td>
+        <td class="mono text-right text-accent">${{ '%.2f'|format(p.ext_cost) }}</td>
+        <td style="text-align:center">
+          {% if p.picked %}
+            <span style="color:var(--accent);font-weight:bold;margin-right:8px;font-size:12px">✓ Picked</span>
+            <button onclick="returnItem('{{ p.part_id }}')" class="btn btn-sm no-print" style="padding:2px 6px;font-size:10px;background:var(--bg3);color:var(--text1)">Return to Inv</button>
+          {% else %}
+            {% if p.on_hand <= 0 %}
+              <span title="Cannot pick — no on-hand inventory" style="font-size:13px;opacity:0.5;cursor:not-allowed">🔒</span>
+            {% else %}
+              <input type="checkbox" class="pick-check"
+                     style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
+            {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="15" class="muted text-center" style="padding:28px">
+        No PRT/RAW parts found — make sure your assemblies have BOM children.
+      </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<style>
+.row-shortage td { background: color-mix(in srgb, var(--red2) 15%, transparent) !important; }
+.pick-row.picked td { opacity: 0.4; text-decoration: line-through; }
+@media print {
+  .topbar, .sidebar, .sidebar-toggle,
+  .filters-bar, th .sort-icon, .no-print,
+  .grid-4, .alert, .card-header { display: none !important; }
+  html, body { height: auto !important; min-height: 0 !important; }
+  .app-shell, .main, .content { display: block !important; flex: none !important;
+    min-height: 0 !important; height: auto !important; }
+  .card { border: none !important; box-shadow: none !important; padding: 0 !important; }
+
+  /* Hide columns that clutter a printed pick sheet */
+  table th:nth-child(2),  table td:nth-child(2),   /* Cat */
+  table th:nth-child(3),  table td:nth-child(3),   /* Type */
+  table th:nth-child(6),  table td:nth-child(6),   /* Supplier P/N */
+  table th:nth-child(10), table td:nth-child(10),  /* On Order */
+  table th:nth-child(11), table td:nth-child(11),  /* ETA */
+  table th:nth-child(15), table td:nth-child(15)   /* Pick ✓ */
+  { display: none !important; }
+
+  table { width: 100%; border-collapse: collapse; table-layout: auto; }
+  th { background: #ddd !important; color: #000 !important; font-size: 7.5pt !important;
+       padding: 3px 5px !important; border: 1px solid #bbb !important; text-align: left; }
+  td { font-size: 8pt !important; padding: 3px 5px !important;
+       border: 1px solid #ccc !important; color: #000 !important; overflow: visible !important;
+       max-width: none !important; white-space: normal !important; }
+  /* Keep supplier col readable */
+  table td:nth-child(5) { max-width: 130px !important; overflow: hidden !important;
+                           text-overflow: ellipsis !important; }
+  .row-shortage td { background: #fff3cc !important; }
+  tr { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  @page { margin: 1cm; size: landscape; }
+}
+</style>
+<script>
+const PROJECT_ID = "{{ project.project_id }}";
+
+async function returnItem(part_id) {
+  if (!confirm(`Return this item to on-hand inventory?`)) return;
+  const formData = new FormData();
+  formData.append('part_id', part_id);
+  const res = await fetch(`/projects/${PROJECT_ID}/pick-list/unpick`, {
+    method: 'POST', body: formData
+  });
+  const data = await res.json();
+  if (data.ok) {
+    showToast(data.msg);
+    setTimeout(() => location.reload(), 600);
+  } else {
+    showToast(data.msg, 'error');
+  }
+}
+
+async function commitPicks() {
+  const rows = document.querySelectorAll('.pick-row');
+  const picks = [];
+  let blocked = 0;
+  rows.forEach(row => {
+    const cb     = row.querySelector('.pick-check');
+    const onHand = parseFloat(row.dataset.onHand) || 0;
+    if (cb && cb.checked) {
+      if (onHand <= 0) {
+        // Visually uncheck and warn — can't pick what's not in stock
+        cb.checked = false;
+        blocked++;
+      } else {
+        picks.push({
+          part_id: row.dataset.partId,
+          qty:     parseFloat(row.dataset.qty) || 0,
+        });
+      }
+    }
+  });
+  if (blocked > 0) {
+    showToast(`${blocked} item(s) skipped — no on-hand inventory.`, 'error');
+  }
+  if (picks.length === 0) {
+    if (blocked === 0) showToast('No items checked — nothing to commit.', 'error');
+    return;
+  }
+
+  const confirmMsg = `Commit ${picks.length} new picked item(s)?\nThis will deduct their quantities from on-hand inventory.`;
+  if (!confirm(confirmMsg)) return;
+
+  const btn = document.getElementById('commit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const res = await fetch(`/projects/${PROJECT_ID}/pick-list/commit`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({picks}),
+  });
+  const data = await res.json();
+  if (btn) { btn.disabled = false; btn.textContent = '✓ Commit Picks'; }
+  if (data.ok) {
+    showToast(data.msg || 'Picks committed ✓');
+    setTimeout(() => location.reload(), 900);
+  } else {
+    showToast(data.msg || 'Error committing picks', 'error');
+  }
+}
+
+function filterShortage(onlyShortage) {
+  document.querySelectorAll('.pick-row').forEach(row => {
+    const shortage = parseFloat(row.dataset.shortage) || 0;
+    row.style.display = (onlyShortage && shortage <= 0) ? 'none' : '';
+  });
+}
+
+let sortCol = -1, sortAsc = true;
+document.querySelectorAll('th.sortable').forEach(th => {
+  th.style.cursor = 'pointer';
+  th.addEventListener('click', () => {
+    const col = parseInt(th.dataset.col);
+    if (sortCol === col) sortAsc = !sortAsc;
+    else { sortCol = col; sortAsc = true; }
+    const tbody = document.querySelector('#pick-table tbody');
+    const rows  = [...tbody.querySelectorAll('tr')];
+    rows.sort((a, b) => {
+      const at = a.cells[col]?.textContent.trim().replace(/[$,]/g,'') || '';
+      const bt = b.cells[col]?.textContent.trim().replace(/[$,]/g,'') || '';
+      const an = parseFloat(at), bn = parseFloat(bt);
+      let cmp = (!isNaN(an) && !isNaN(bn)) ? an - bn : at.localeCompare(bt, undefined, {numeric:true});
+      return sortAsc ? cmp : -cmp;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+    document.querySelectorAll('.sort-icon').forEach(s => s.textContent = '↕');
+    th.querySelector('.sort-icon').textContent = sortAsc ? '↑' : '↓';
+  });
+});
+</script>
+{% endblock %}

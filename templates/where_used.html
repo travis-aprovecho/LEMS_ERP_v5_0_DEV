@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Where Used · {{ part.part_id }} · LEMS ERP{% endblock %}
+{% block breadcrumb %}
+  <a href="/">Home</a> ›
+  <a href="/parts">Parts</a> ›
+  <a href="/parts/{{ part.part_id }}/edit">{{ part.part_id }}</a> ›
+  Where Used
+{% endblock %}
+{% block page_title %}Where Used{% endblock %}
+{% block topbar_actions %}
+  <a href="/parts/{{ part.part_id }}/edit" class="btn btn-secondary btn-sm">← Back to Part</a>
+  {% if part.type in ['FAB','ASSY'] %}
+  <a href="/bom?part_id={{ part.part_id }}" class="btn btn-secondary btn-sm">⋈ BOM Editor</a>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+
+<!-- Part identity card -->
+<div class="card" style="margin-bottom:16px;padding:14px 20px">
+  <div class="flex-center gap-12">
+    <span class="badge badge-{{ part.type }}">{{ part.type }}</span>
+    <div>
+      <div class="mono" style="font-size:13px">{{ part.part_id }}</div>
+      <div class="muted small">{{ part.plain_desc or '—' }}</div>
+    </div>
+    <div class="ml-auto flex-center gap-16">
+      <div style="text-align:right">
+        <div class="muted small" style="margin-bottom:2px">Unit Cost</div>
+        <div class="mono text-accent">${{ '%.4f'|format(part.unit_cost) }}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="muted small" style="margin-bottom:2px">Used In</div>
+        <div class="mono" style="font-size:18px;font-weight:500;color:var(--text0)">
+          {{ direct|length }}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if not direct %}
+<div class="card">
+  <div style="text-align:center;padding:40px;color:var(--text2)">
+    <div style="font-size:28px;margin-bottom:10px">◌</div>
+    <div>This part is not used in any BOM.</div>
+    {% if part.type in ['ASSY','FAB'] %}
+    <div class="muted small" style="margin-top:6px">It may be a top-level assembly.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% else %}
+
+<div class="grid-2">
+
+  <!-- Direct parents -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Direct Parents</h2>
+      <span class="card-meta">{{ direct|length }} assemblies</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Assembly</th><th>Type</th><th>Description</th>
+          <th style="text-align:right">Qty Used</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for p in direct %}
+        <tr>
+          <td class="mono small">
+            <a href="/bom?part_id={{ p.parent_id }}"
+               style="color:var(--blue);text-decoration:none">{{ p.parent_id }}</a>
+          </td>
+          <td><span class="badge badge-{{ p.parent_type }}">{{ p.parent_type }}</span></td>
+          <td>{{ p.parent_desc or '—' }}</td>
+          <td class="mono text-right text-amber">
+            {% if p.qty == 0 %}
+              <span class="muted">optional</span>
+            {% else %}
+              × {{ p.qty }}
+            {% endif %}
+          </td>
+          <td>
+            <a href="/bom?part_id={{ p.parent_id }}"
+               class="btn btn-ghost btn-xs" style="color:var(--blue)">⋈</a>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Cost impact panel -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Cost Impact</h2>
+      <span class="card-meta">if unit cost changes</span>
+    </div>
+    <p class="muted small" style="margin-bottom:14px">
+      Changing the unit cost of <span class="mono" style="color:var(--accent)">{{ part.part_id }}</span>
+      will affect the rolled cost of every assembly below.
+    </p>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:6px">Simulate new unit cost ($)</label>
+      <div class="flex-center gap-8">
+        <input type="number" id="sim-cost" step="any" min="0"
+               value="{{ '%.4f'|format(part.unit_cost) }}"
+               style="width:130px" oninput="simulateCost()">
+        <span class="muted small">current: ${{ '%.4f'|format(part.unit_cost) }}</span>
+      </div>
+    </div>
+    <div id="impact-table">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Assembly</th>
+            <th style="text-align:right">Qty</th>
+            <th style="text-align:right">Δ Cost</th>
+          </tr></thead>
+          <tbody id="impact-tbody">
+          {% for p in direct %}
+          <tr>
+            <td class="mono small">
+              <a href="/bom?part_id={{ p.parent_id }}"
+                 style="color:var(--blue);text-decoration:none">{{ p.parent_id }}</a>
+            </td>
+            <td class="mono text-right text-amber">
+              {% if p.qty == 0 %}—{% else %}× {{ p.qty }}{% endif %}
+            </td>
+            <td class="mono text-right" id="delta-{{ loop.index }}"
+                data-qty="{{ p.qty }}">
+              {% if p.qty > 0 %}
+              ${{ '%.4f'|format(part.unit_cost * p.qty) }}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Full ancestor paths -->
+{% if usages %}
+<div class="card">
+  <div class="card-header">
+    <h2>Full Ancestor Paths</h2>
+    <span class="card-meta">{{ usages|length }} paths to top-level assemblies</span>
+  </div>
+  <div style="font-family:'IBM Plex Mono',monospace;font-size:12px">
+    {% set seen_paths = [] %}
+    {% for u in usages %}
+    {% if u.path|length > 1 %}
+    <div style="padding:7px 10px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      {% for step in u.path %}
+        {% if not loop.last %}
+          <a href="/bom?part_id={{ step }}"
+             style="color:var(--blue);text-decoration:none">{{ step }}</a>
+          <span style="color:var(--text3)">→</span>
+        {% else %}
+          <span style="color:var(--text2)">{{ step }}</span>
+        {% endif %}
+      {% endfor %}
+      <span style="margin-left:auto;color:var(--text3);font-size:10px">
+        depth {{ u.path|length - 1 }}
+      </span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CURRENT_COST = {{ part.unit_cost }};
+
+function simulateCost() {
+  const newCost = parseFloat(document.getElementById('sim-cost').value) || 0;
+  const delta   = newCost - CURRENT_COST;
+  document.querySelectorAll('[id^="delta-"]').forEach(cell => {
+    const qty = parseFloat(cell.dataset.qty);
+    if (!qty) return;
+    const impact = newCost * qty;
+    const diff   = delta * qty;
+    const sign   = diff >= 0 ? '+' : '';
+    cell.innerHTML = `$${impact.toFixed(4)} <span style="color:${diff > 0 ? 'var(--red)' : diff < 0 ? 'var(--accent)' : 'var(--text2)'};font-size:10px">(${sign}$${diff.toFixed(4)})</span>`;
+  });
+}
+</script>
+{% endblock %}

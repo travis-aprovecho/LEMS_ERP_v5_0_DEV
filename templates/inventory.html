@@ -1,0 +1,531 @@
+{% extends "base.html" %}
+{% block title %}Inventory · LEMS ERP{% endblock %}
+{% block breadcrumb %}<a href="/">Home</a> › Inventory{% endblock %}
+{% block page_title %}Stock / Inventory{% endblock %}
+
+{% block content %}
+{% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
+
+<!-- Controls -->
+<div class="card no-print" style="margin-bottom:12px">
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+
+    <!-- Mode tabs -->
+    <div style="display:flex;gap:2px;background:var(--bg3);border-radius:6px;padding:2px;flex-shrink:0">
+      <button onclick="setMode('stock')" id="mode-stock"
+              class="btn btn-sm" style="border-radius:5px">◱ Stock View</button>
+      <button onclick="setMode('count')" id="mode-count"
+              class="btn btn-sm" style="border-radius:5px">☰ Count Sheet</button>
+    </div>
+
+    <div style="width:1px;height:22px;background:var(--border);flex-shrink:0"></div>
+
+    <select id="proj-scope" onchange="applyProjectScope()" style="width:210px">
+      <option value="">All PRT/RAW parts</option>
+      {% for p in projects %}{% if p.status == 'ACTIVE' %}
+      <option value="{{ p.project_id }}">
+        {{ p.project_id }}{% if p.customer %} — {{ p.customer }}{% endif %}
+      </option>
+      {% endif %}{% endfor %}
+    </select>
+
+    <select id="cat-filter" onchange="applyFilters()" style="width:120px">
+      <option value="">All categories</option>
+      {% for c in categories %}
+      <option value="{{ c }}">{{ c }}</option>
+      {% endfor %}
+    </select>
+
+    <input type="search" id="inv-search" placeholder="Search parts…"
+           oninput="applyFilters()" style="width:180px">
+
+    <label id="shortage-label"
+           style="display:flex;align-items:center;gap:5px;font-size:11px;
+                  color:var(--amber);cursor:pointer;text-transform:none;
+                  letter-spacing:0;font-weight:400">
+      <input type="checkbox" id="shortages-only" onchange="applyFilters()"
+             style="width:auto;accent-color:var(--amber)">
+      Shortages only
+    </label>
+
+    <div class="ml-auto flex gap-8" style="align-items:center">
+      <span id="row-count" class="muted small"></span>
+      <button onclick="exportCountCSV()" class="btn btn-ghost btn-sm">⬇ CSV</button>
+      <button onclick="window.print()" class="btn btn-secondary btn-sm" id="print-btn" style="display:none">
+        🖨 Print Count Sheet
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Count mode status bar -->
+<div id="count-status" class="no-print" style="display:none;margin-bottom:10px">
+  <div style="display:flex;gap:20px;padding:8px 14px;background:var(--bg2);
+              border-radius:6px;border:1px solid var(--border);font-size:12px;flex-wrap:wrap;
+              align-items:center">
+    <span>Counted: <strong id="cnt-done">0</strong> / <strong id="cnt-total">0</strong></span>
+    <span style="color:var(--amber)" id="cnt-disc"></span>
+    <span style="color:var(--accent)" id="cnt-match"></span>
+  </div>
+</div>
+
+<!-- Print header -->
+<div class="print-only" style="display:none;margin-bottom:8px;font-family:sans-serif">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;
+              padding-bottom:10px;border-bottom:2px solid #000">
+    <div>
+      <div style="font-size:15pt;font-weight:700">Aprovecho Research Center — Physical Inventory Count</div>
+      <div style="font-size:9pt;color:#555;margin-top:2px" id="print-scope-label"></div>
+    </div>
+    <div style="text-align:right;font-size:9pt;color:#555">
+      <div>Date: ___________________________</div>
+      <div style="margin-top:4px">Counted by: ______________________</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="padding:0">
+  <div class="table-wrap" style="overflow:visible">
+    <table id="inv-table">
+      <thead>
+        <tr>
+          <th class="sortable" data-col="0">Part ID <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="1">Cat <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="2">Description <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="3">Supplier <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="4" style="max-width:110px">Supplier P/N <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="5">UOM <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="6" style="text-align:right">Unit Cost <span class="sort-icon">↕</span></th>
+          <th class="sortable" data-col="7" style="text-align:right">Global Need <span class="sort-icon">↕</span></th>
+          <!-- Stock cols -->
+          <th class="sortable stock-col" data-col="8" style="text-align:right">On Hand <span class="sort-icon">↕</span></th>
+          <th class="sortable stock-col" data-col="9" style="text-align:right">On Order <span class="sort-icon">↕</span></th>
+          <th class="sortable stock-col" data-col="10">ETA <span class="sort-icon">↕</span></th>
+          <!-- Count cols -->
+          <th class="count-col" style="text-align:right;display:none">On Hand</th>
+          <th class="count-col no-print" style="text-align:right;display:none">Actual Count</th>
+          <th class="count-col" style="text-align:right;display:none">Diff</th>
+          <!-- Print count box -->
+          <th class="count-col print-only" style="display:none;text-align:center">Count</th>
+          <th class="count-col no-print" style="display:none">Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for p in parts %}
+      <tr data-part-id="{{ p.part_id }}"
+          data-cat="{{ p.category }}"
+          data-on-hand="{{ p.qty_on_hand }}"
+          data-unit-cost="{{ p.unit_cost }}"
+          data-global-need="{{ global_need.get(p.part_id, 0) }}"
+          class="inv-row {% if p.qty_on_hand < global_need.get(p.part_id, 0) and p.unit_cost > 0 %}row-shortage{% endif %}">
+        <td class="part-id-cell">
+          <a href="/parts/{{ p.part_id }}/edit"
+             style="color:var(--text1);text-decoration:none">{{ p.part_id }}</a>
+        </td>
+        <td class="muted small">{{ p.category }}</td>
+        <td style="font-size:12px">{{ p.plain_desc or '—' }}</td>
+        <td class="muted small">{{ p.supplier or '—' }}</td>
+        <td class="mono small muted col-supplier-pn" title="{{ p.supplier_pn }}" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          {% if p.supplier_pn and (p.supplier_pn.startswith('http://') or p.supplier_pn.startswith('https://')) %}
+            <a href="{{ p.supplier_pn }}" target="_blank" rel="noopener"
+               style="color:var(--blue);text-decoration:none" title="{{ p.supplier_pn }}">
+              {{ p.supplier_pn[:30] }}{% if p.supplier_pn|length > 30 %}…{% endif %}</a>
+          {% else %}
+            {{ p.supplier_pn or '—' }}
+          {% endif %}
+        </td>
+        <td class="muted small">{{ p.uom }}</td>
+        <td class="mono text-right">${{ '%.2f'|format(p.unit_cost) }}</td>
+
+        {# Global Need #}
+        {% set gn = global_need.get(p.part_id, 0) %}
+        <td class="mono text-right {% if gn > 0 %}text-amber{% else %}muted{% endif %}">
+          {{ gn if gn > 0 else '—' }}</td>
+
+        <!-- Stock cols -->
+        <td class="mono text-right inv-cell stock-col
+            {% if p.qty_on_hand < gn and p.unit_cost > 0 %}text-amber{% else %}text-accent{% endif %}"
+            contenteditable="true"
+            data-part-id="{{ p.part_id }}" data-inv-field="qty_on_hand"
+            title="Click to edit">{{ p.qty_on_hand }}</td>
+        <td class="mono text-right inv-cell stock-col"
+            contenteditable="true"
+            data-part-id="{{ p.part_id }}" data-inv-field="qty_on_order"
+            title="Click to edit">{{ p.qty_on_order if p.qty_on_order else '' }}</td>
+        <td class="mono small inv-cell stock-col"
+            contenteditable="true"
+            data-part-id="{{ p.part_id }}" data-inv-field="order_eta"
+            title="ETA e.g. 2026-05-15">{{ p.order_eta or '' }}</td>
+
+        <!-- Count cols -->
+        <td class="mono text-right count-col" style="display:none">{{ p.qty_on_hand }}</td>
+        <td class="count-col no-print" style="display:none;padding:3px 6px">
+          <input type="number" step="any" min="0" class="count-input"
+                 style="width:72px;text-align:right;padding:3px 6px;
+                        font-family:'IBM Plex Mono',monospace;font-size:12px"
+                 placeholder="—"
+                 data-part-id="{{ p.part_id }}"
+                 data-on-hand="{{ p.qty_on_hand }}"
+                 onchange="handleCount(this)"
+                 onblur="saveCount(this)">
+        </td>
+        <td class="mono text-right count-col diff-cell" style="display:none;font-size:11px">—</td>
+        <td class="count-col print-only" style="display:none;text-align:center">
+          <div style="width:68px;height:24px;border:1.5px solid #000;border-radius:3px;display:inline-block"></div>
+        </td>
+        <td class="count-col no-print" style="display:none;padding:3px 6px">
+          <input type="text" placeholder="notes…"
+                 style="width:100%;font-size:11px;padding:2px 5px;
+                        background:var(--bg2);border:1px solid var(--border2);
+                        border-radius:4px;color:var(--text0)">
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="14" class="muted text-center" style="padding:24px">No parts found.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<style>
+.mode-btn-active {
+  background: var(--bg1) !important; color: var(--accent) !important;
+  border: 1px solid var(--accent2) !important;
+}
+.inv-cell { cursor:text; border-radius:3px; }
+.inv-cell:hover { background:var(--bg3) !important; }
+.inv-cell:focus { background:var(--bg4) !important;
+                  box-shadow:inset 0 0 0 1px var(--accent); outline:none; }
+.count-input:focus { border-color:var(--accent) !important; outline:none;
+                     box-shadow:0 0 0 2px rgba(0,200,160,0.15); }
+.row-counted td    { background: color-mix(in srgb, var(--accent) 8%, transparent) !important; }
+.row-discrepancy td { background: color-mix(in srgb, var(--amber) 14%, transparent) !important; }
+.row-shortage td   { background: color-mix(in srgb, var(--amber) 12%, transparent) !important; }
+
+@media print {
+  /* Hide all app chrome */
+  .topbar, .sidebar, .sidebar-toggle, .no-print,
+  .filters-bar, th .sort-icon, #count-status,
+  .card-header { display: none !important; }
+  .app-shell, .main, .content, .card, .table-wrap {
+    display: block !important; width: 100% !important;
+    margin: 0 !important; padding: 0 !important;
+    min-height: 0 !important; height: auto !important;
+    overflow: visible !important; box-shadow: none !important;
+    border: none !important; }
+
+  /* Nuke all height/flex constraints that push table to page 2 */
+  html, body { height: auto !important; min-height: 0 !important; }
+  .print-only { display: block !important; page-break-after: avoid !important; }
+  #inv-table  { page-break-before: avoid !important; break-before: avoid !important; margin-top: 0 !important; }
+  /* Flex containers become block so they don't force height */
+  .app-shell, .main, .content { display: block !important; flex: none !important; }
+
+  /* Count sheet: show only Part ID, Cat, Description, Supplier, UOM, On Hand, Count box */
+  .stock-col   { display: none !important; }   /* On Hand/On Order/ETA stock cols hidden */
+  .count-col   { display: table-cell !important; }
+  .print-only  { display: table-cell !important; }
+
+  /* Hide Unit Cost and Global Need in count mode — keep list clean */
+  #inv-table th:nth-child(7), #inv-table td:nth-child(7),  /* Unit Cost */
+  #inv-table th:nth-child(8), #inv-table td:nth-child(8)   /* Global Need */
+  { display: none !important; }
+
+  #inv-table { width: 100%; border-collapse: collapse; table-layout: auto; }
+  #inv-table th { background: #ddd !important; color: #000 !important; font-size: 7.5pt !important;
+                  padding: 3px 6px !important; border: 1px solid #bbb !important; }
+  #inv-table td { font-size: 8.5pt !important; padding: 3px 6px !important;
+                  border: 1px solid #ccc !important; color: #000 !important; }
+  /* Count box column: give it a visible border box */
+  .count-col.print-only td, #inv-table td:last-child { min-width: 60px; }
+  .inv-row { page-break-inside: avoid; }
+  .row-shortage td  { background: #fff3cc !important; }
+  .row-counted td   { background: #eafff0 !important; }
+  .row-discrepancy td { background: #fff3cc !important; }
+  thead { display: table-header-group; }
+  @page { margin: 1cm; size: landscape; }
+}
+</style>
+<script>
+const GLOBAL_NEED = {{ global_need_json | safe }};
+let currentMode   = 'stock';
+let projectFilter = null;   // set of part_ids when a project is selected
+
+// ── Mode switching ─────────────────────────────────────────────────────────────
+function setMode(mode) {
+  currentMode = mode;
+  const isCount = mode === 'count';
+  document.querySelectorAll('.stock-col').forEach(el => el.style.display = isCount ? 'none' : '');
+  document.querySelectorAll('.count-col:not(.print-only)').forEach(el => el.style.display = isCount ? '' : 'none');
+  document.getElementById('count-status').style.display = isCount ? 'block' : 'none';
+  document.getElementById('print-btn').style.display    = isCount ? '' : 'none';
+  document.getElementById('mode-stock').className = 'btn btn-sm' + (isCount ? '' : ' mode-btn-active');
+  document.getElementById('mode-count').className = 'btn btn-sm' + (isCount ? ' mode-btn-active' : '');
+  if (isCount) updateCountStatus();
+  try { localStorage.setItem('lems-inv-mode', mode); } catch(e) {}
+}
+
+// ── Project scope ──────────────────────────────────────────────────────────────
+async function applyProjectScope() {
+  const projId = document.getElementById('proj-scope').value;
+  if (!projId) {
+    projectFilter = null;
+  } else {
+    try {
+      const res = await fetch(`/api/project-parts/${encodeURIComponent(projId)}`);
+      const ids  = await res.json();
+      projectFilter = new Set(ids);
+    } catch(e) {
+      projectFilter = null;
+    }
+  }
+  // Update print scope label
+  const sel = document.getElementById('proj-scope');
+  document.getElementById('print-scope-label').textContent =
+    projId ? sel.options[sel.selectedIndex]?.text : 'All PRT/RAW Parts';
+  applyFilters();
+}
+
+// ── Filters ────────────────────────────────────────────────────────────────────
+function applyFilters() {
+  const search   = document.getElementById('inv-search').value.toLowerCase();
+  const cat      = document.getElementById('cat-filter').value;
+  const shortage = document.getElementById('shortages-only').checked;
+  let visible    = 0;
+
+  document.querySelectorAll('.inv-row').forEach(row => {
+    const pid      = row.dataset.partId || '';
+    const catVal   = row.dataset.cat || '';
+    const onHand   = parseFloat(row.dataset.onHand) || 0;
+    const unitCost = parseFloat(row.dataset.unitCost) || 0;
+    const need     = parseFloat(row.dataset.globalNeed) || 0;
+    const desc     = row.cells[2]?.textContent.toLowerCase() || '';
+    const sup      = row.cells[3]?.textContent.toLowerCase() || '';
+
+    const matchProj    = !projectFilter || projectFilter.has(pid);
+    const matchSearch  = !search  || pid.toLowerCase().includes(search) || desc.includes(search) || sup.includes(search);
+    const matchCat     = !cat     || catVal === cat;
+    const matchShort   = !shortage || (onHand < need && unitCost > 0);
+
+    const show = matchProj && matchSearch && matchCat && matchShort;
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+
+  document.getElementById('row-count').textContent = `${visible} parts`;
+  if (currentMode === 'count') updateCountStatus();
+}
+
+// ── Count sheet logic ─────────────────────────────────────────────────────────
+function handleCount(input) {
+  const val    = parseFloat(input.value);
+  const onHand = parseFloat(input.dataset.onHand) || 0;
+  const tr     = input.closest('tr');
+  const diffCell = tr.querySelector('.diff-cell');
+  tr.classList.remove('row-counted','row-discrepancy');
+  if (!isNaN(val)) {
+    const diff = val - onHand;
+    if (diffCell) {
+      diffCell.textContent = diff === 0 ? '✓' : (diff > 0 ? `+${diff}` : `${diff}`);
+      diffCell.style.color = diff === 0 ? 'var(--accent)' : 'var(--amber)';
+    }
+    if (Math.abs(diff) > 0.001) tr.classList.add('row-discrepancy');
+    else tr.classList.add('row-counted');
+  } else {
+    if (diffCell) { diffCell.textContent = '—'; diffCell.style.color = ''; }
+  }
+  updateCountStatus();
+}
+
+async function saveCount(input) {
+  const val = parseFloat(input.value);
+  if (isNaN(val) || input.value === '') return;
+  const partId = input.dataset.partId;
+  const fd = new FormData();
+  fd.append('part_id', partId);
+  fd.append('qty_on_hand', val);
+  const res = await apiFetch('/inventory/update', fd);
+  if (res.ok) {
+    const row = input.closest('tr');
+    // Update stock-view on-hand cell
+    const stockCell = row.querySelector('[data-inv-field="qty_on_hand"]');
+    if (stockCell) { stockCell.textContent = val; stockCell.dataset.orig = String(val); }
+    // Update data attributes
+    row.dataset.onHand = val;
+    input.dataset.onHand = val;
+    // Update shortage class
+    const need = parseFloat(row.dataset.globalNeed) || 0;
+    const cost = parseFloat(row.dataset.unitCost)   || 0;
+    row.classList.toggle('row-shortage', val < need && cost > 0);
+    showToast(`On Hand → ${val}`);
+  } else {
+    showToast(res.msg, 'error');
+  }
+}
+
+function updateCountStatus() {
+  const inputs = [...document.querySelectorAll('.count-input')]
+    .filter(inp => inp.closest('tr').style.display !== 'none');
+  let counted = 0, discrepancies = 0, matches = 0;
+  inputs.forEach(inp => {
+    const val = parseFloat(inp.value);
+    if (!isNaN(val) && inp.value !== '') {
+      counted++;
+      const diff = Math.abs(val - (parseFloat(inp.dataset.onHand) || 0));
+      if (diff > 0.001) discrepancies++; else matches++;
+    }
+  });
+  document.getElementById('cnt-done').textContent  = counted;
+  document.getElementById('cnt-total').textContent = inputs.length;
+  document.getElementById('cnt-disc').textContent  = discrepancies > 0 ? `⚠ ${discrepancies} discrepancy` : '';
+  document.getElementById('cnt-match').textContent = matches > 0       ? `✓ ${matches} match`  : '';
+}
+
+// ── CSV export — proper quoting ───────────────────────────────────────────────
+function csvEscape(v) {
+  // Always quote; escape inner double-quotes by doubling them
+  return '"' + String(v ?? '').replace(/"/g, '""') + '"';
+}
+
+function exportCountCSV() {
+  const rows = [...document.querySelectorAll('.inv-row')]
+    .filter(r => r.style.display !== 'none');
+  const isCount = currentMode === 'count';
+  const headers = ['Part ID','Category','Description','Supplier','Supplier P/N','UOM',
+                   'Unit Cost','Global Need','On Hand'];
+  if (isCount) headers.push('Actual Count','Difference','Notes');
+  else         headers.push('On Order','ETA');
+  const lines = [headers.map(csvEscape).join(',')];
+
+  rows.forEach(row => {
+    const pid    = row.dataset.partId || '';
+    const cat    = row.cells[1]?.textContent.trim() || '';
+    const desc   = row.cells[2]?.textContent.trim() || '';
+    const sup    = row.cells[3]?.textContent.trim() || '';
+    const spn    = row.cells[4]?.textContent.trim() || '';
+    const uom    = row.cells[5]?.textContent.trim() || '';
+    const cost   = row.cells[6]?.textContent.trim() || '';
+    const need   = row.dataset.globalNeed || '0';
+    const oh     = row.dataset.onHand || '';
+
+    const fields = [pid, cat, desc, sup, spn, uom, cost, need, oh];
+    if (isCount) {
+      const inp  = row.querySelector('.count-input');
+      const cnt  = inp?.value || '';
+      const diff = (cnt !== '' && oh !== '') ? String(parseFloat(cnt) - parseFloat(oh)) : '';
+      const note = row.querySelector('input[type=text]')?.value || '';
+      fields.push(cnt, diff, note);
+    } else {
+      const oo  = row.querySelector('[data-inv-field="qty_on_order"]')?.textContent.trim() || '';
+      const eta = row.querySelector('[data-inv-field="order_eta"]')?.textContent.trim()   || '';
+      fields.push(oo, eta);
+    }
+    lines.push(fields.map(csvEscape).join(','));
+  });
+
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `inventory_${currentMode}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+// ── Stock view inline editing ─────────────────────────────────────────────────
+document.querySelectorAll('.inv-cell').forEach(cell => {
+  const orig = cell.textContent.trim();
+  cell.dataset.orig = orig;
+  cell.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); cell.blur(); }
+    if (e.key === 'Escape') { cell.textContent = cell.dataset.orig; cell.blur(); }
+  });
+  cell.addEventListener('blur', async () => {
+    const val = cell.textContent.trim();
+    if (val === cell.dataset.orig) return;
+    const fd = new FormData();
+    fd.append('part_id', cell.dataset.partId);
+    fd.append(cell.dataset.invField, val);
+    const res = await apiFetch('/inventory/update', fd);
+    if (res.ok) {
+      cell.dataset.orig = val;
+      showToast('Saved');
+      if (cell.dataset.invField === 'qty_on_hand') {
+        const qty  = parseFloat(val) || 0;
+        const row  = cell.closest('tr');
+        const need = parseFloat(row.dataset.globalNeed) || 0;
+        const cost = parseFloat(row.dataset.unitCost)   || 0;
+        row.classList.toggle('row-shortage', qty < need && cost > 0);
+        cell.className = cell.className.replace(/text-(amber|accent)/g,'');
+        cell.classList.add(qty < need && cost > 0 ? 'text-amber' : 'text-accent');
+      }
+    } else {
+      cell.textContent = cell.dataset.orig;
+      showToast(res.msg, 'error');
+    }
+  });
+});
+
+// ── Column sort ────────────────────────────────────────────────────────────────
+let sortCol = -1, sortAsc = true;
+document.querySelectorAll('th.sortable').forEach(th => {
+  th.style.cursor = 'pointer';
+  th.addEventListener('click', () => {
+    const col = parseInt(th.dataset.col);
+    if (sortCol === col) sortAsc = !sortAsc;
+    else { sortCol = col; sortAsc = true; }
+    const tbody = document.querySelector('#inv-table tbody');
+    const rows  = [...tbody.querySelectorAll('tr.inv-row')];
+    rows.sort((a, b) => {
+      const at = a.cells[col]?.textContent.trim().replace(/[$,]/g,'') || '';
+      const bt = b.cells[col]?.textContent.trim().replace(/[$,]/g,'') || '';
+      const an = parseFloat(at), bn = parseFloat(bt);
+      let cmp = (!isNaN(an) && !isNaN(bn)) ? an - bn : at.localeCompare(bt,undefined,{numeric:true});
+      return sortAsc ? cmp : -cmp;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+    document.querySelectorAll('.sort-icon').forEach(s => s.textContent = '↕');
+    th.querySelector('.sort-icon').textContent = sortAsc ? '↑' : '↓';
+  });
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+(function() {
+  try {
+    const saved = localStorage.getItem('lems-inv-mode');
+    setMode(saved === 'count' ? 'count' : 'stock');
+  } catch(e) { setMode('stock'); }
+  applyFilters();
+  document.getElementById('print-scope-label').textContent = 'All PRT/RAW Parts';
+})();
+
+// Fix for blank first page: Chrome creates a new formatting context for
+// overflow:hidden elements, which prevents them starting on the same page
+// as preceding content. Strip it at print time, restore after.
+window.addEventListener('beforeprint', () => {
+  document.querySelectorAll('.card, .table-wrap').forEach(el => {
+    el.dataset.origOverflow = el.style.overflow || '';
+    el.dataset.origMinHeight = el.style.minHeight || '';
+    el.style.overflow = 'visible';
+    el.style.minHeight = '0';
+  });
+  // Also zero out app-level min-heights
+  document.querySelectorAll('.app-shell, .main, .content').forEach(el => {
+    el.dataset.origMinHeight = getComputedStyle(el).minHeight;
+    el.style.minHeight = '0';
+    el.style.height = 'auto';
+  });
+});
+window.addEventListener('afterprint', () => {
+  document.querySelectorAll('.card, .table-wrap, .app-shell, .main, .content').forEach(el => {
+    el.style.overflow = el.dataset.origOverflow || '';
+    el.style.minHeight = el.dataset.origMinHeight || '';
+    el.style.height = '';
+    delete el.dataset.origOverflow;
+    delete el.dataset.origMinHeight;
+  });
+});
+</script>
+{% endblock %}

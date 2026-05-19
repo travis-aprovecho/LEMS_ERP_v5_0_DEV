@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}LEMS ERP{% endblock %}</title>
+  <link rel="icon" type="image/x-icon" href="/static/img/erp_icon.ico">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script>
+    (function() {
+      if (localStorage.getItem('lems-mode') === 'light')
+        document.documentElement.classList.add('light');
+    })();
+  </script>
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- Sidebar toggle: outside aside so it's visible when sidebar is collapsed -->
+  <div class="sidebar-toggle" onclick="toggleSidebar()" id="sidebar-toggle" title="Toggle sidebar">◀</div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="wordmark">LEMS ERP</div>
+      <div class="subtitle">v4.0 · Local</div>
+    </div>
+    <nav>
+      <div class="nav-section">
+        <div class="nav-label">Overview</div>
+        <a href="/" class="nav-item {% if request.url.path == '/' %}active{% endif %}">
+          <i class="nav-icon">◈</i> Dashboard
+        </a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Inventory</div>
+        <a href="/parts" class="nav-item {% if '/parts' in request.url.path and '/where-used' not in request.url.path %}active{% endif %}">
+          <i class="nav-icon">⬡</i> Parts Master
+        </a>
+        <a href="/inventory" class="nav-item {% if '/inventory' in request.url.path %}active{% endif %}">
+          <i class="nav-icon">◱</i> Stock / Count
+        </a>
+
+        <a href="/bom" class="nav-item {% if '/bom' in request.url.path %}active{% endif %}">
+          <i class="nav-icon">⋈</i> BOM Editor
+        </a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Projects</div>
+        <a href="/projects" class="nav-item {% if '/projects' in request.url.path %}active{% endif %}">
+          <i class="nav-icon">◫</i> Projects
+        </a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">System</div>
+        <a href="/admin" class="nav-item {% if '/admin' in request.url.path %}active{% endif %}">
+          <i class="nav-icon">⚙</i> Admin / Import
+          <span id="nav-flag-badge" style="display:none;margin-left:auto;
+            background:var(--red2);color:var(--red);border:1px solid var(--red2);
+            font-size:9px;padding:1px 5px;border-radius:3px;font-family:'IBM Plex Mono',monospace">
+          </span>
+        </a>
+        <a href="/audit" class="nav-item {% if '/audit' in request.url.path %}active{% endif %}">
+          <i class="nav-icon">📋</i> Audit Log
+        </a>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="mode-toggle" onclick="toggleMode()">
+        <div class="toggle-track"><div class="toggle-knob"></div></div>
+        <span class="mode-toggle-label" id="mode-label">Dark mode</span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="breadcrumb">{% block breadcrumb %}<a href="/">Home</a>{% endblock %}</div>
+      <h1>{% block page_title %}{% endblock %}</h1>
+      {% block topbar_actions %}{% endblock %}
+    </header>
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script src="/static/js/lems-core.js"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

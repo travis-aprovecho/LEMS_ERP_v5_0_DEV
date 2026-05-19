@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block title %}BOM Editor · LEMS ERP{% endblock %}
+{% block breadcrumb %}<a href="/">Home</a> › BOM Editor{% endblock %}
+{% block page_title %}BOM Editor{% endblock %}
+{% block topbar_actions %}
+  {% if selected %}
+  <a href="/print/bom/{{ selected.part_id }}" target="_blank"
+     class="btn btn-secondary btn-sm">🖨 Print BOM</a>
+  <div style="text-align:right">
+    <div class="cost-display" id="rolled-cost-header">${{ '%.2f'|format(rolled_cost) }}</div>
+    <div class="cost-sub">rolled cost</div>
+  </div>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+{% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
+
+<div class="bom-layout">
+
+  <!-- Left: assembly selector with category filter -->
+  <div class="bom-selector">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:6px">
+        <input type="search" id="asm-search" placeholder="Filter assemblies…"
+               style="width:100%;padding:5px 8px;font-size:12px">
+        <select id="asm-cat-filter" onchange="filterAsm()"
+                style="width:100%;padding:5px 8px;font-size:11px">
+          <option value="">All categories</option>
+          {% for cat in categories %}
+          <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div id="asm-list">
+        {% for a in assemblies %}
+        <div class="assembly-item {% if selected and selected.part_id == a.part_id %}active{% endif %}"
+             onclick="selectAssembly('{{ a.part_id }}')"
+             data-pid="{{ a.part_id }}"
+             data-name="{{ a.part_id|lower }} {{ (a.plain_desc or '')|lower }}"
+             data-cat="{{ a.category }}">
+          <div class="flex-center gap-8">
+            <span class="badge badge-{{ a.type }}">{{ a.type }}</span>
+            <span class="muted small">{{ a.category }}</span>
+          </div>
+          <div class="aid">{{ a.part_id }}</div>
+          <div class="adesc small" style="color:var(--text1)">{{ a.plain_desc or '—' }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: BOM detail -->
+  <div>
+    {% if selected %}
+
+    <!-- Assembly header card -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header">
+        <span class="badge badge-{{ selected.type }}">{{ selected.type }}</span>
+        <h2 style="flex:1">{{ selected.plain_desc or selected.part_id }}</h2>
+        <span class="card-meta mono">{{ selected.part_id }}</span>
+        <div class="flex gap-8 ml-auto">
+          <a href="/parts/{{ selected.part_id }}/edit" class="btn btn-secondary btn-sm">✎ Edit Part</a>
+        </div>
+      </div>
+
+      <!-- Labor + cost summary -->
+      <div style="display:flex;gap:16px;margin-bottom:14px;padding:10px 14px;
+                  background:var(--bg2);border-radius:6px;border:1px solid var(--border);
+                  flex-wrap:wrap;align-items:center">
+        <div>
+          <div class="muted small" style="margin-bottom:3px">Assembly Labor Hrs</div>
+          <div class="flex-center gap-8">
+            <input type="number" id="labor-hrs-input" class="labor-input"
+                   step="any" min="0" value="{{ selected.labor_hrs or 0 }}">
+            <button onclick="saveLabor()" class="btn btn-secondary btn-xs">Save</button>
+          </div>
+        </div>
+        <div style="border-left:1px solid var(--border);padding-left:16px">
+          <div class="muted small" style="margin-bottom:3px">Material Cost</div>
+          <div class="mono text-accent" id="mat-cost-display">
+            {% if bom_summary %}${{ '%.2f'|format(bom_summary.material_cost) }}{% else %}—{% endif %}
+          </div>
+        </div>
+        <div style="border-left:1px solid var(--border);padding-left:16px">
+          <div class="muted small" style="margin-bottom:3px">Total Labor Hrs</div>
+          <div class="mono text-amber" id="labor-hrs-display">
+            {% if bom_summary %}{{ '%.2f'|format(bom_summary.labor_hrs) }} hrs{% else %}—{% endif %}
+          </div>
+        </div>
+        <div style="border-left:1px solid var(--border);padding-left:16px;margin-left:auto">
+          <div class="muted small" style="margin-bottom:3px">Rolled Cost</div>
+          <div class="cost-display" style="font-size:16px" id="rolled-cost-display">
+            ${{ '%.2f'|format(rolled_cost) }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Add component -->
+      <div style="display:flex;gap:10px;align-items:flex-end;
+                  margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+        <div class="part-search-wrap" style="flex:1">
+          <label style="display:block;margin-bottom:5px">Add Component</label>
+          <input type="text" id="child-search" placeholder="Search by part ID or description…"
+                 autocomplete="off" oninput="searchChildParts(this.value)">
+          <div class="part-dropdown" id="part-dropdown"></div>
+          <input type="hidden" id="child-id-val">
+        </div>
+        <div style="width:90px">
+          <label style="display:block;margin-bottom:5px">Qty <span class="muted" style="font-size:9px;text-transform:none">(0=optional)</span></label>
+          <input type="number" id="child-qty" value="1" step="any" min="0">
+        </div>
+        <button onclick="addComponent()" class="btn btn-primary">+ Add</button>
+      </div>
+
+      <!-- Children table -->
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:24px"></th>
+            <th>Child Part ID</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th style="text-align:right">Qty</th>
+            <th style="text-align:right">Labor Hrs</th>
+            <th style="text-align:right">Unit Cost</th>
+            <th style="text-align:right">Ext Cost</th>
+            <th>UOM</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="bom-tbody">
+          {% for c in children %}
+          <tr class="{% if c.qty == 0 %}optional-row{% endif %} {% if c.status == 'OBSOLETE' %}obsolete-row{% endif %}"
+              data-child-id="{{ c.child_id }}"
+              {% if c.qty == 0 %}style="background:color-mix(in srgb, var(--amber2) 12%, transparent)"{% endif %}>
+            <td class="drag-handle" title="Drag to reorder">⠿</td>
+            <td class="mono small">
+              {% if c.type in ['FAB','ASSY'] %}
+                <a href="/bom?part_id={{ c.child_id }}"
+                   style="color:var(--blue);text-decoration:none">{{ c.child_id }}</a>
+              {% else %}
+                <a href="/parts/{{ c.child_id }}/edit"
+                   style="color:var(--text2);text-decoration:none">{{ c.child_id }}</a>
+              {% endif %}
+              {% if c.status == 'OBSOLETE' %}
+                <span class="badge badge-OBSOLETE" style="margin-left:4px">OBS</span>
+              {% endif %}
+            </td>
+            <td><span class="badge badge-{{ c.type }}">{{ c.type }}</span></td>
+            <td>
+              {{ c.plain_desc }}
+              {% if c.qty == 0 %}<span class="optional-badge">OPTIONAL</span>{% endif %}
+            </td>
+            <td style="text-align:right">
+              <input type="number" value="{{ c.qty }}" step="any" min="0"
+                     style="width:72px;text-align:right;padding:3px 6px"
+                     onchange="updateQty('{{ selected.part_id }}','{{ c.child_id }}',this.value)">
+            </td>
+            <td style="text-align:right">
+              <input type="number" class="labor-input" value="{{ c.labor_hrs or 0 }}"
+                     step="any" min="0" style="width:64px"
+                     title="Labor hours for {{ c.child_id }}"
+                     onchange="updateChildLabor('{{ c.child_id }}',this.value)">
+            </td>
+            <td class="mono text-right text-accent">${{ '%.2f'|format(c.unit_cost) }}</td>
+            <td class="mono text-right">
+              {% if c.qty > 0 %}${{ '%.2f'|format(c.unit_cost * c.qty) }}
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+            <td class="muted small">{{ c.uom }}</td>
+            <td>
+              <button onclick="removeComponent('{{ selected.part_id }}','{{ c.child_id }}')"
+                      class="btn btn-ghost btn-xs" style="color:var(--red)">✕</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="muted text-center" style="padding:20px">
+            No components yet — add one above.
+          </td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- BOM tree -->
+    {% if tree %}
+    <div class="card">
+      <div class="card-header">
+        <h2>Full BOM Tree</h2>
+        <button onclick="expandAll()"   class="btn btn-ghost btn-sm">Expand all</button>
+        <button onclick="collapseAll()" class="btn btn-ghost btn-sm">Collapse all</button>
+        <span class="card-meta ml-auto">qty 0 = optional (excluded from cost)</span>
+      </div>
+      <div id="bom-tree-container" class="bom-tree"
+           data-parent-id="{{ selected.part_id if selected else '' }}"
+           data-add-to="{{ add_to or '' }}"></div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="card">
+      <div style="text-align:center;padding:56px;color:var(--text2)">
+        <div style="font-size:36px;margin-bottom:14px">⋈</div>
+        <div>Select an assembly from the left panel.</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/bom.js"></script>
+{% endblock %}

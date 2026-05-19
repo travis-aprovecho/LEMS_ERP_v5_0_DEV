@@ -1,0 +1,540 @@
+{% extends "base.html" %}
+{% block title %}Quote · {{ project.project_id }} · LEMS ERP{% endblock %}
+{% block breadcrumb %}<a href="/">Home</a> › <a href="/projects">Projects</a> › <a href="/projects/{{ project.project_id }}">{{ project.project_id }}</a> › Quote{% endblock %}
+{% block page_title %}Quote Builder{% endblock %}
+
+{% block topbar_actions %}
+  <a href="/projects/{{ project.project_id }}" class="btn btn-secondary btn-sm">← Project</a>
+  <span class="mono muted" style="font-size:11px;align-self:center">
+    v{{ quote.version }} · {{ quote.status }}
+    {% if quote.costs_frozen %} · 🔒 Frozen {{ quote.frozen_at[:10] if quote.frozen_at else '' }}{% endif %}
+  </span>
+  <button onclick="toggleView('internal')" id="btn-internal"
+          class="btn btn-primary btn-sm">📊 Internal View</button>
+  <button onclick="toggleView('proforma')" id="btn-proforma"
+          class="btn btn-secondary btn-sm">📄 Pro-Forma View</button>
+{% endblock %}
+
+{% block content %}
+{% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
+
+{# ── What you're looking at ── #}
+<div class="card no-print" style="margin-bottom:14px;background:var(--bg2);border:1px solid var(--border)">
+  <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+    <div>
+      <div class="muted small" style="margin-bottom:3px;text-transform:uppercase;letter-spacing:.08em;font-size:10px">Customer</div>
+      <div style="font-weight:500">{{ project.customer or '—' }}</div>
+    </div>
+    <div>
+      <div class="muted small" style="margin-bottom:3px;text-transform:uppercase;letter-spacing:.08em;font-size:10px">Project</div>
+      <div class="mono" style="font-weight:500">{{ project.project_id }}</div>
+    </div>
+    <div>
+      <div class="muted small" style="margin-bottom:3px;text-transform:uppercase;letter-spacing:.08em;font-size:10px">Quote Version</div>
+      <div style="font-weight:500">v{{ quote.version }}</div>
+    </div>
+    <div>
+      <div class="muted small" style="margin-bottom:3px;text-transform:uppercase;letter-spacing:.08em;font-size:10px">Status</div>
+      <div>{{ quote.status }}</div>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+      {% if quote.costs_frozen %}
+      <button onclick="unfreezeQuote()" class="btn btn-ghost btn-sm"
+              title="Unfreeze to use live BOM costs again">🔓 Unfreeze Costs</button>
+      {% else %}
+      <button onclick="freezeQuote()" class="btn btn-secondary btn-sm"
+              title="Lock in current BOM costs so they don't change if parts are updated later">
+        🔒 Freeze Costs
+      </button>
+      {% endif %}
+      <button onclick="bumpVersion()" class="btn btn-ghost btn-sm"
+              title="Increment version number when sending a revised quote to the customer">
+        ↑ Bump Version
+      </button>
+    </div>
+  </div>
+</div>
+
+{# ── INTERNAL VIEW ── #}
+<div id="view-internal">
+
+  {# Cost summary banner #}
+  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px">
+    <div class="stat-card" title="Total material cost rolled up from the BOM — purchase price of all parts">
+      <div class="stat-val" style="font-size:17px">${{ '%.2f'|format(mat_cost) }}</div>
+      <div class="stat-label">Material Cost</div>
+    </div>
+    <div class="stat-card" title="Material cost × overhead rate, covering shop space, utilities, tools, etc.">
+      <div class="stat-val" style="font-size:17px" id="sc-mat-burdened">${{ '%.2f'|format(mat_burdened) }}</div>
+      <div class="stat-label">Burdened Material</div>
+    </div>
+    <div class="stat-card" title="Total direct labor hours × quoted labor rate">
+      <div class="stat-val" style="font-size:17px;color:var(--amber)" id="sc-labor-cost">${{ '%.2f'|format(labor_cost) }}</div>
+      <div class="stat-label">Labor Cost</div>
+    </div>
+    <div class="stat-card" title="Sum of all direct costs: burdened material + labor + freight + gases + training + other">
+      <div class="stat-val" style="font-size:17px" id="sc-total-internal">${{ '%.2f'|format(total_internal) }}</div>
+      <div class="stat-label">Total Internal Cost</div>
+    </div>
+    <div class="stat-card" title="The price you're charging the customer (quoted total)">
+      <div class="stat-val" style="font-size:17px;color:var(--accent)" id="sc-quoted">${{ '%.2f'|format(quoted_total) }}</div>
+      <div class="stat-label">Quoted Price</div>
+    </div>
+    <div class="stat-card" title="Gross margin = (Quoted Price − Total Cost) ÷ Quoted Price. Shows what percentage of revenue remains after covering all costs.">
+      <div class="stat-val" style="font-size:17px;color:{% if gross_margin_pct >= 15 %}var(--accent){% elif gross_margin_pct >= 0 %}var(--amber){% else %}var(--red){% endif %}" id="sc-margin">
+        {{ '%.1f'|format(gross_margin_pct) }}%
+      </div>
+      <div class="stat-label">Gross Margin</div>
+    </div>
+  </div>
+
+  <form method="post" action="/projects/{{ project.project_id }}/quote/save"
+        data-project-id="{{ project.project_id }}">
+    <input type="hidden" name="updated_at" value="{{ quote.updated_at or '' }}">
+
+    {# BOM Costs block #}
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header">
+        <h2>BOM Costs</h2>
+        <span class="card-meta">
+          {% if quote.costs_frozen %}
+            🔒 Frozen {{ quote.frozen_at[:10] if quote.frozen_at else '' }} —
+            Material: ${{ '%.2f'|format(quote.frozen_material) }},
+            Labor: {{ '%.1f'|format(quote.frozen_labor_hrs) }} hrs
+          {% else %}
+            Live values from BOM rollup
+          {% endif %}
+        </span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px;padding:4px 0">
+        <div>
+          <div class="muted small" style="margin-bottom:4px">Material Cost (BOM rollup)</div>
+          <div class="mono" style="font-size:18px;font-weight:600">${{ '%.2f'|format(mat_cost) }}</div>
+          <div class="muted small" style="margin-top:3px">{{ '%.1f'|format(labor_hrs) }} direct labor hrs</div>
+        </div>
+        <div>
+          <label class="muted small" style="display:block;margin-bottom:4px">Overhead Rate
+            <span style="font-weight:400;text-transform:none;letter-spacing:0"> — multiplier on material to recover shop costs. 1.0 = none, 1.15 = 15%.</span>
+          </label>
+          <input type="number" name="overhead_rate" step="0.01" min="1.0"
+                 value="{{ quote.overhead_rate or 1.0 }}" style="width:90px" oninput="recalcTotals()">
+        </div>
+        <div>
+          <label class="muted small" style="display:block;margin-bottom:4px">Quoted Labor Rate ($/hr)
+            <span style="font-weight:400;text-transform:none;letter-spacing:0"> — set above actual payroll rate to build margin into labor hours.</span>
+          </label>
+          <input type="number" name="labor_rate_quoted" id="labor-rate-input" step="0.5" min="0"
+                 value="{{ labor_rate_quoted }}" style="width:90px" oninput="recalcTotals()">
+        </div>
+        <div>
+          <div class="muted small" style="margin-bottom:4px">Burdened Material</div>
+          <div class="mono" style="font-size:18px;font-weight:600" id="sc-mat-burdened2">${{ '%.2f'|format(mat_burdened) }}</div>
+          <div class="muted small" style="margin-top:3px">Material × overhead</div>
+        </div>
+      </div>
+    </div>
+
+    {# Additional line items #}
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><h2>Additional Cost Line Items</h2></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+        {# Freight #}
+        <div>
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;
+                      color:var(--text2);margin-bottom:10px">Freight</div>
+          <div class="form-group" style="margin-bottom:10px">
+            <label>Inbound Freight (est.)
+              <span style="font-weight:400;text-transform:none;letter-spacing:0"> — your cost to receive purchased parts</span>
+            </label>
+            <input type="number" name="freight_inbound" step="0.01" min="0"
+                   value="{{ quote.freight_inbound or 0 }}" style="width:140px"
+                   oninput="recalcTotals()">
+          </div>
+          <div class="form-group">
+            <label>Outbound Freight
+              <span style="font-weight:400;text-transform:none;letter-spacing:0"> — cost to ship kit to customer site</span>
+            </label>
+            <input type="number" name="freight_outbound" step="0.01" min="0"
+                   value="{{ quote.freight_outbound or 0 }}" style="width:140px"
+                   oninput="recalcTotals()">
+          </div>
+        </div>
+
+        {# Cal Gases #}
+        <div>
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;
+                      color:var(--text2);margin-bottom:10px">Calibration Gases</div>
+          <div class="form-group" style="margin-bottom:10px">
+            <label>Gas Cost
+              <span style="font-weight:400;text-transform:none;letter-spacing:0"> — CO/CO₂ cylinders, direct-shipped to customer</span>
+            </label>
+            <input type="number" name="cal_gases_cost" step="0.01" min="0"
+                   value="{{ quote.cal_gases_cost or 0 }}" style="width:140px"
+                   oninput="recalcTotals()">
+          </div>
+          <div class="form-group">
+            <label>Gas Freight Surcharge
+              <span style="font-weight:400;text-transform:none;letter-spacing:0"> — hazmat/direct-ship fee from gas supplier</span>
+            </label>
+            <input type="number" name="cal_gases_freight" step="0.01" min="0"
+                   value="{{ quote.cal_gases_freight or 0 }}" style="width:140px"
+                   oninput="recalcTotals()">
+          </div>
+        </div>
+
+        {# Training #}
+        <div style="grid-column:1/-1">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;
+                      color:var(--text2);margin-bottom:10px">Training</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:12px">
+            <div class="form-group">
+              <label>Training Days</label>
+              <input type="number" name="training_days" step="0.5" min="0"
+                     value="{{ quote.training_days or 0 }}" style="width:100px">
+            </div>
+            <div class="form-group">
+              <label>Total Training Cost ($)
+                <span style="font-weight:400;text-transform:none;letter-spacing:0"> — travel, hotel, per diem, days</span>
+              </label>
+              <input type="number" name="training_cost" step="0.01" min="0"
+                     value="{{ quote.training_cost or 0 }}" style="width:140px"
+                     oninput="recalcTotals()">
+            </div>
+            <div class="form-group">
+              <label>Training Notes</label>
+              <input type="text" name="training_notes"
+                     value="{{ quote.training_notes or '' }}"
+                     placeholder="e.g. 3-day on-site in Kampala, or remote via Zoom">
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    {# Quoted Price — waterfall calculation #}
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><h2>Quoted Price</h2></div>
+      <div style="display:grid;grid-template-columns:1fr 260px;gap:24px;align-items:start">
+
+        {# LEFT: waterfall table #}
+        <div>
+          <div class="form-group" style="margin-bottom:14px;display:inline-block">
+            <label>Markup on Material (%)</label>
+            <input type="number" name="markup_pct" id="markup-input" step="0.1" min="0"
+                   value="{{ quote.get('markup_pct', project.markup or 0) }}"
+                   style="width:120px" oninput="recalcTotals()">
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <col style="width:60%"><col style="width:40%">
+
+            {# ── Markupable base ── #}
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td class="muted" style="padding:5px 8px 5px 0">Material Cost</td>
+              <td class="mono text-right" style="padding:5px 0">${{ '%.2f'|format(mat_cost) }}</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td class="muted" style="padding:5px 8px 5px 0">× Overhead ({{ '%.2f'|format(quote.overhead_rate or 1.0) }}×) = Burdened Material</td>
+              <td class="mono text-right" id="sc-mat-burdened2" style="padding:5px 0">${{ '%.2f'|format(mat_burdened) }}</td>
+            </tr>
+            {% if other_markup > 0 %}
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td class="muted" style="padding:5px 8px 5px 0">+ Custom Items (with markup)</td>
+              <td class="mono text-right" id="wf-other-markup" style="padding:5px 0">${{ '%.2f'|format(other_markup) }}</td>
+            </tr>
+            {% endif %}
+            <tr style="border-bottom:2px solid var(--border);background:var(--bg2)">
+              <td style="padding:6px 8px 6px 0;font-weight:600">= Markupable Base</td>
+              <td class="mono text-right" id="wf-markupable" style="padding:6px 0;font-weight:600">${{ '%.2f'|format(markupable) }}</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td class="muted" style="padding:5px 8px 5px 0">× Markup ({{ quote.get('markup_pct', project.markup or 0) }}%) = Markup Amount</td>
+              <td class="mono text-right" id="display-markup-amount" style="padding:5px 0;color:var(--amber)">${{ '%.2f'|format(markup_amount) }}</td>
+            </tr>
+            <tr style="border-bottom:2px solid var(--border);background:var(--bg2)">
+              <td style="padding:6px 8px 6px 0;font-weight:600">= Marked-up Subtotal</td>
+              <td class="mono text-right" id="wf-marked-up" style="padding:6px 0;font-weight:600">${{ '%.2f'|format(markupable + markup_amount) }}</td>
+            </tr>
+
+            {# ── Pass-through additions ── #}
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td class="muted" style="padding:5px 8px 5px 0">+ Labor ({{ '%.1f'|format(labor_hrs) }} hrs × ${{ '%.2f'|format(labor_rate_quoted) }}/hr) pass-through</td>
+              <td class="mono text-right" id="wf-labor" style="padding:5px 0">${{ '%.2f'|format(labor_cost) }}</td>
+            </tr>
+            {% if other_nomark > 0 %}
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td class="muted" style="padding:5px 8px 5px 0">+ Custom Items (pass-through, no markup)</td>
+              <td class="mono text-right" id="wf-other-nomark" style="padding:5px 0">${{ '%.2f'|format(other_nomark) }}</td>
+            </tr>
+            {% endif %}
+            {% if quote.freight_inbound %}
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td class="muted" style="padding:5px 8px 5px 0">+ Freight Inbound</td>
+              <td class="mono text-right" style="padding:5px 0">${{ '%.2f'|format(quote.freight_inbound) }}</td>
+            </tr>
+            {% endif %}
+            {% if quote.freight_outbound %}
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td class="muted" style="padding:5px 8px 5px 0">+ Freight Outbound</td>
+              <td class="mono text-right" style="padding:5px 0">${{ '%.2f'|format(quote.freight_outbound) }}</td>
+            </tr>
+            {% endif %}
+            {% if quote.cal_gases_cost or quote.cal_gases_freight %}
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td class="muted" style="padding:5px 8px 5px 0">+ Cal Gases{% if quote.cal_gases_freight %} + Freight{% endif %}</td>
+              <td class="mono text-right" style="padding:5px 0">${{ '%.2f'|format((quote.cal_gases_cost or 0)+(quote.cal_gases_freight or 0)) }}</td>
+            </tr>
+            {% endif %}
+            {% if quote.training_cost %}
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td class="muted" style="padding:5px 8px 5px 0">+ Training</td>
+              <td class="mono text-right" style="padding:5px 0">${{ '%.2f'|format(quote.training_cost) }}</td>
+            </tr>
+            {% endif %}
+            <tr style="border-bottom:2px solid var(--border);background:var(--bg2)">
+              <td style="padding:6px 8px 6px 0;font-weight:600">= Pre-discount Total</td>
+              <td class="mono text-right" id="display-pre-discount" style="padding:6px 0;font-weight:600">${{ '%.2f'|format(pre_discount) }}</td>
+            </tr>
+
+            {# ── Discounts ── #}
+            <tr id="wf-line-disc-row" style="border-bottom:1px solid var(--border2){% if not total_item_disc %};display:none{% endif %}">
+              <td class="muted" style="padding:5px 8px 5px 0;color:var(--red)">− Line Item Discounts (from order sheet)</td>
+              <td class="mono text-right" id="wf-line-disc" style="padding:5px 0;color:var(--red)">−${{ '%.2f'|format(total_item_disc) }}</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border2)">
+              <td style="padding:6px 8px 6px 0">
+                <span class="muted">− Global Discount</span>
+                <span style="display:inline-flex;gap:8px;margin-left:12px">
+                  <input type="number" name="discount_pct" id="discount-pct-input" step="0.1" min="0"
+                         value="{{ quote.get('discount_pct') or '' }}" style="width:70px"
+                         placeholder="%" oninput="recalcTotals()">
+                  <input type="number" name="discount_flat" id="discount-flat-input" step="0.01" min="0"
+                         value="{{ quote.get('discount_flat') or '' }}" style="width:80px"
+                         placeholder="$" oninput="recalcTotals()">
+                  <input type="text" name="discount_note" value="{{ quote.get('discount_note', '') }}"
+                         style="flex:1;min-width:120px" placeholder="discount note">
+                </span>
+              </td>
+              <td class="mono text-right" id="wf-global-disc" style="padding:6px 0;color:var(--red)">
+                {% if quote.get('discount_pct') or quote.get('discount_flat') %}
+                  −${{ '%.2f'|format(overall_discount) }}
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+
+            {# ── Final quoted price ── #}
+            <tr style="background:color-mix(in srgb,var(--accent) 8%,transparent)">
+              <td style="padding:10px 8px 10px 0;font-weight:700;font-size:14px">= QUOTED PRICE</td>
+              <td class="mono text-right" id="display-quoted"
+                  style="padding:10px 0;font-weight:700;font-size:18px;color:var(--accent)">
+                ${{ '%.2f'|format(quoted_total) }}
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        {# RIGHT: summary panel #}
+        <div style="background:var(--bg2);border-radius:8px;padding:16px;border:1px solid var(--border);position:sticky;top:16px">
+          <div style="margin-bottom:14px">
+            <div class="muted small" style="margin-bottom:3px">Total Internal Cost</div>
+            <div class="mono" style="font-size:16px;font-weight:600" id="display-total-cost">
+              ${{ '%.2f'|format(total_internal) }}
+            </div>
+            <div class="muted" style="font-size:10px;margin-top:2px">What it costs ARC to deliver</div>
+          </div>
+          <div style="border-top:1px solid var(--border2);padding-top:14px;margin-bottom:14px">
+            <div class="muted small" style="margin-bottom:3px">Quoted Price</div>
+            <div class="mono" style="font-size:22px;font-weight:700;color:var(--accent)" id="display-quoted2">
+              ${{ '%.2f'|format(quoted_total) }}
+            </div>
+          </div>
+          <div style="border-top:1px solid var(--border2);padding-top:12px">
+            <div class="muted small" style="margin-bottom:3px">Gross Margin</div>
+            <div class="mono" id="display-margin"
+                 style="font-size:20px;font-weight:700;color:{% if gross_margin_pct >= 15 %}var(--accent){% elif gross_margin_pct >= 0 %}var(--amber){% else %}var(--red){% endif %}">
+              {{ '%.1f'|format(gross_margin_pct) }}%
+            </div>
+            <div class="muted" style="font-size:10px;margin-top:2px">(Quoted − Internal) ÷ Quoted</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    {# Settings + notes #}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="card">
+        <div class="card-header"><h2>Quote Settings</h2></div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label>Currency</label>
+            <select name="currency" style="width:120px">
+              {% for c in ['USD','EUR','GBP','CAD','AUD','CHF'] %}
+              <option value="{{ c }}" {% if quote.currency == c %}selected{% endif %}>{{ c }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Quote Status</label>
+            <select name="status">
+              {% for s in ['DRAFT','SENT','ACCEPTED','DECLINED','SUPERSEDED'] %}
+              <option value="{{ s }}" {% if quote.status == s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h2>Internal Notes</h2></div>
+        <div class="form-group">
+          <textarea name="internal_notes" rows="3"
+                    style="width:100%;resize:vertical"
+                    placeholder="Notes visible internally only — cost assumptions, customer context, follow-up items…">{{ quote.internal_notes or '' }}</textarea>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-bottom:20px">
+      <button type="submit" class="btn btn-primary">💾 Save Quote</button>
+    </div>
+
+  </form>
+</div>{# end view-internal #}
+
+{# ── PRO-FORMA VIEW ── #}
+<div id="view-proforma" style="display:none">
+  <div class="no-print" style="display:flex;gap:10px;margin-bottom:16px">
+    <button onclick="window.print()" class="btn btn-secondary btn-sm">🖨 Print</button>
+    <span class="muted small" style="align-self:center">
+      This is the customer-facing view. Internal costs and margins are not shown.
+    </span>
+  </div>
+
+  <div class="card" style="max-width:820px;margin:0 auto;padding:32px 40px" id="proforma-doc">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px">
+      <div>
+        <div style="font-size:22px;font-weight:700;letter-spacing:-.01em">PRO-FORMA INVOICE</div>
+        <div class="muted small" style="margin-top:4px">Aprovecho Research Center · LEMS Monitoring System</div>
+      </div>
+      <div style="text-align:right;font-size:12px;color:var(--text2)">
+        <div>Quote v{{ quote.version }}</div>
+        <div>{{ quote.updated_at[:10] if quote.updated_at else '' }}</div>
+        <div style="margin-top:4px;font-weight:600;color:var(--text0)">{{ quote.status }}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px;
+                padding-bottom:16px;border-bottom:2px solid var(--border)">
+      <div>
+        <div class="muted small" style="margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em;font-size:10px">Bill To</div>
+        <div style="font-weight:600">{{ project.customer or 'Customer Name' }}</div>
+        <div class="muted small">{{ project.project_id }}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="muted small" style="margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em;font-size:10px">Currency</div>
+        <div style="font-weight:600">{{ quote.currency or 'USD' }}</div>
+      </div>
+    </div>
+
+    {# Line items table #}
+    <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--border)">
+          <th style="text-align:left;padding:6px 0;font-size:10px;text-transform:uppercase;letter-spacing:.08em">Description</th>
+          <th style="text-align:right;padding:6px 0;font-size:10px;text-transform:uppercase;letter-spacing:.08em">Amount ({{ quote.currency or 'USD' }})</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in quote_line_items %}
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:10px 0">
+            <div style="font-weight:500;">{{ item.desc }}</div>
+            {% if item.discount > 0 %}
+            <div class="muted small" style="margin-top:2px; color: var(--accent) !important;">
+              Includes line-item discount of ${{ '%.2f'|format(item.discount) }}
+            </div>
+            {% endif %}
+          </td>
+          <td style="text-align:right;font-family:'IBM Plex Mono',monospace;padding:10px 0;vertical-align:top;">
+            {% if item.qty != 1 %}<span class="muted small" style="margin-right:8px">{{ '%.0f'|format(item.qty) }} &times;</span>{% endif %}
+            ${{ '%.2f'|format(item.retail) }}
+          </td>
+        </tr>
+        {% else %}
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:10px 0">
+            <div style="font-weight:500">LEMS Monitoring Kit — Hardware &amp; Components</div>
+            <div class="muted small" style="margin-top:2px">{{ project.project_id }} — complete kit per specification</div>
+          </td>
+          <td style="text-align:right;font-family:'IBM Plex Mono',monospace;padding:10px 0">
+            ${{ '%.2f'|format(kit_subtotal) }}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if quote.freight_outbound %}
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 0">
+            <div style="font-weight:500">Outbound Freight &amp; Handling</div>
+            <div class="muted small">Shipping to customer site</div>
+          </td>
+          <td style="text-align:right;font-family:'IBM Plex Mono',monospace;padding:8px 0">
+            ${{ '%.2f'|format(quote.freight_outbound) }}
+          </td>
+        </tr>
+        {% endif %}
+        {% if quote.cal_gases_cost or quote.cal_gases_freight %}
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 0">
+            <div style="font-weight:500">Calibration Gases</div>
+            <div class="muted small">CO/CO₂ reference cylinders, direct-shipped from supplier{% if quote.cal_gases_freight %} (includes freight surcharge){% endif %}</div>
+          </td>
+          <td style="text-align:right;font-family:'IBM Plex Mono',monospace;padding:8px 0">
+            ${{ '%.2f'|format((quote.cal_gases_cost or 0) + (quote.cal_gases_freight or 0)) }}
+          </td>
+        </tr>
+        {% endif %}
+        {% if quote.training_cost %}
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 0">
+            <div style="font-weight:500">Training</div>
+            <div class="muted small">{{ quote.training_notes or (quote.training_days|string + ' day(s)') }}</div>
+          </td>
+          <td style="text-align:right;font-family:'IBM Plex Mono',monospace;padding:8px 0">
+            ${{ '%.2f'|format(quote.training_cost) }}
+          </td>
+        </tr>
+        {% endif %}
+        {# NOTE: custom line items are already rendered above via quote_line_items — no second loop needed #}
+      </tbody>
+      <tfoot>
+        <tr style="border-top:2px solid var(--border)">
+          <td style="padding:12px 0;font-weight:700;font-size:15px">TOTAL</td>
+          <td style="text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;
+                     font-size:15px;color:var(--accent);padding:12px 0">
+            {{ quote.currency or 'USD' }} ${{ '%.2f'|format(quoted_total) }}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+
+    {% if quote.proforma_footer %}
+    <div class="muted small" style="border-top:1px solid var(--border);padding-top:14px;
+         white-space:pre-line">{{ quote.proforma_footer }}</div>
+    {% else %}
+    <div class="muted small" style="border-top:1px solid var(--border);padding-top:14px">
+      This pro-forma invoice is provided for customs, funding, and budget approval purposes.
+      Payment terms and final invoice to be confirmed upon project confirmation.
+      Aprovecho Research Center is a 501(c)(3) non-profit organization.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/project-quote.js"></script>
+{% endblock %}
