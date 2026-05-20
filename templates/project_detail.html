@@ -194,6 +194,9 @@
             <a href="/parts/{{ item.part_id }}/edit"
                style="color:var(--text2);text-decoration:none">{{ item.part_id }}</a>
           {% endif %}
+          {% if item.status == 'OBSOLETE' %}
+            <span class="badge badge-OBSOLETE" style="margin-left:4px">OBS</span>
+          {% endif %}
         </td>
         <td><span class="badge badge-{{ item.type }}">{{ item.type }}</span></td>
         <td class="{% if item.item_type == 'DELETED' %}muted{% endif %}">

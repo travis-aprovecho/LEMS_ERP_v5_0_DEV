@@ -159,7 +159,12 @@
   {% else %}
   {# PRT/RAW: full supplier + cost card #}
   <div class="card" id="supplier-card">
-    <div class="card-header"><h2>Primary Supplier / Cost</h2></div>
+    <div class="card-header" style="display:flex; align-items:center;">
+      <h2>Primary Supplier / Cost</h2>
+      {% if not is_new %}
+      <button type="button" class="btn btn-ghost btn-sm" style="margin-left:auto; color:var(--text2);" onclick="showCostHistory('{{ part.part_id }}')" title="View Cost History">◷ Cost History</button>
+      {% endif %}
+    </div>
     <div class="form-grid-3">
       <div class="form-group">
         <label>Supplier</label>
@@ -281,8 +286,56 @@
     {% endif %}
   </div>
 </form>
+
+<!-- Cost History Modal -->
+<div id="cost-history-modal" class="bom-modal-backdrop" onclick="if(event.target===this) this.classList.remove('open')">
+  <div class="bom-modal" style="width:400px; height:auto; max-height:80vh;">
+    <div class="bom-modal-header">
+      <div style="display:flex; flex-direction:column">
+        <div class="bom-modal-title">Cost History</div>
+        <div class="bom-modal-pid" id="ch-part-id"></div>
+      </div>
+      <button class="bom-modal-close" onclick="document.getElementById('cost-history-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="bom-modal-body" style="padding:16px;">
+      <table class="data-table">
+        <thead>
+          <tr><th>Date</th><th style="text-align:right">Old Cost</th><th style="text-align:right">New Cost</th></tr>
+        </thead>
+        <tbody id="ch-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script src="/static/js/part-form.js"></script>
+<script>
+async function showCostHistory(part_id) {
+  document.getElementById('ch-part-id').textContent = part_id;
+  const tbody = document.getElementById('ch-body');
+  tbody.innerHTML = '<tr><td colspan="3" style="text-align:center">Loading...</td></tr>';
+  document.getElementById('cost-history-modal').classList.add('open');
+  
+  try {
+    const res = await fetch(`/api/parts/${encodeURIComponent(part_id)}/cost-history`);
+    const data = await res.json();
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="muted" style="text-align:center">No cost history recorded.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(r => `
+      <tr>
+        <td class="small">${r.changed_at.split('.')[0].replace('T', ' ')}</td>
+        <td class="mono text-right">$${r.old_cost.toFixed(6)}</td>
+        <td class="mono text-right">$${r.new_cost.toFixed(6)}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="3" class="alert-error" style="text-align:center">Error loading history.</td></tr>';
+  }
+}
+</script>
 {% endblock %}

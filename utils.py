@@ -115,3 +115,66 @@ def backup_on_write_if_due(db_path: str) -> None:
     with _backup_lock:
         if should_backup_on_write(db_path):
             backup_db(db_path, reason='write')
+
+def archive_old_change_logs(db_path: str, months_to_keep: int = 12) -> None:
+    """
+    Archives change_log and part_cost_history entries older than months_to_keep to CSV files in
+    backups/archive/ and deletes them from the database.
+    """
+    db_dir = os.path.dirname(os.path.abspath(db_path))
+    archive_dir = os.path.join(db_dir, 'backups', 'archive')
+    os.makedirs(archive_dir, exist_ok=True)
+    
+    cutoff_date = (datetime.datetime.now() - datetime.timedelta(days=30 * months_to_keep)).isoformat(timespec='seconds')
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        
+        # Check if there are any rows to archive
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM change_log WHERE ts < ?", (cutoff_date,))
+        count = cursor.fetchone()[0]
+        
+        if count == 0:
+            conn.close()
+            return
+            
+        rows = conn.execute("SELECT * FROM change_log WHERE ts < ?", (cutoff_date,)).fetchall()
+        
+        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        csv_filename = f"change_log_archive_{ts}.csv"
+        csv_path = os.path.join(archive_dir, csv_filename)
+        
+        import csv
+        with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            if rows:
+                writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow(dict(row))
+                    
+        # Only delete if writing was successful
+        conn.execute("DELETE FROM change_log WHERE ts < ?", (cutoff_date,))
+        conn.commit()
+        logging.info("Archived %d old change_log entries to %s", count, csv_filename)
+        
+        # ── part_cost_history archiving ──
+        cursor.execute("SELECT COUNT(*) FROM part_cost_history WHERE changed_at < ?", (cutoff_date,))
+        cost_count = cursor.fetchone()[0]
+        if cost_count > 0:
+            cost_rows = conn.execute("SELECT * FROM part_cost_history WHERE changed_at < ?", (cutoff_date,)).fetchall()
+            cost_csv_filename = f"part_cost_history_archive_{ts}.csv"
+            cost_csv_path = os.path.join(archive_dir, cost_csv_filename)
+            with open(cost_csv_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=cost_rows[0].keys())
+                writer.writeheader()
+                for row in cost_rows:
+                    writer.writerow(dict(row))
+            conn.execute("DELETE FROM part_cost_history WHERE changed_at < ?", (cutoff_date,))
+            conn.commit()
+            logging.info("Archived %d old part_cost_history entries to %s", cost_count, cost_csv_filename)
+            
+        conn.close()
+    except Exception as e:
+        logging.warning("Failed to archive old logs: %s", e)

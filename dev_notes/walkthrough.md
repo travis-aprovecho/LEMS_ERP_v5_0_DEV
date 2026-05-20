@@ -1,4 +1,4 @@
-# LEMS ERP v5.0 — Phases 1 & 2 Complete
+# LEMS ERP v5.0 — Phases 1-4 Complete
 
 I have successfully executed the foundational upgrades and type safety enhancements for the v5.0 release, ensuring the database is resilient, strictly validated, and fully covered by write-path tests.
 
@@ -45,3 +45,38 @@ To verify these backend changes in the UI, please follow these steps:
 3. Click **Edit**, change its `part_id` to something new (e.g., append `-v2`), and hit **Save**.
 4. Check any BOM that previously contained the old `part_id`. You will see it automatically updated to the new `-v2` ID.
 5. If you have an active project quote or pick list using that part, check the project page — the ID will have seamlessly updated there as well.
+
+
+
+---
+
+## What Was Completed in Phase 3: Performance & Hygiene
+
+### 1. O(1) Memory BOM Traversal
+- **Implementation:** Refactored database.py to utilize an in-memory dictionary cache for all recursive BOM functions (_build_bom_ctx()). explode_bom_flat, 
+un_rollup, uild_bom_tree, and get_where_used now pull all parts and om rows from SQLite once, passing the resulting dictionary down the recursion tree.
+- **Result:** BOM topological traversals and rollups now execute purely in Python memory. This drastically drops query load, keeping latency in the low milliseconds regardless of BOM depth by eliminating the N+1 database queries.
+
+### 2. Change Log Archival
+- **Implementation:** Built rchive_old_change_logs(db_path, months_to_keep=12) in utils.py which is called automatically upon app startup in main.py.
+- **Result:** This script automatically identifies change_log audit rows older than 12 months, dumps them safely into a .csv format in ackups/archive/, and then permanently deletes them from SQLite. This automates database hygiene and keeps lems_core.db lean indefinitely.
+
+> [!NOTE]
+> During this task, we also discovered and removed a massive chunk of duplicated code in database.py that had been accidentally inserted in a past edit, which successfully reduced the file length and complexity back to normal.
+
+
+---
+
+## What Was Completed in Phase 4: Data Integrity
+
+### 1. Immutable Quote Snapshots
+- **Implementation:** Added the quote_snapshots table via 4 schema migration. Refactored the save_quote function in database.py to intercept quote status changes to "SENT" or "ACCEPTED".
+- **Result:** When a quote is marked as sent or accepted for the first time on a specific version, the system calls uild_print_project to instantly capture the full recursive BOM tree, all custom line items, and the exact rolled financial totals. This output is permanently frozen as a JSON blob in the database, guaranteeing historical accuracy even if underlying parts are radically modified years later.
+
+### 2. Soft Deletes
+- **Implementation:** Added deleted_at to the parts table. Altered delete_part() to execute an UPDATE parts SET deleted_at=... rather than physically deleting rows and wiping dependent relations. 
+- **Result:** Historical quotes and existing assemblies will never break their foreign-key relations or throw missing part errors. The part is fully preserved for past rollups, but we've appended a AND deleted_at IS NULL condition to get_all_parts() to ghost the part out of the active UI search indexes.
+
+### 3. Visual "Ghosting" of Deleted & Obsolete Parts
+- **Implementation:** Edited database.py to pipe the status and deleted_at properties up through both the flat BOM list (explode_bom_flat) and the Project Summary (get_project_items). 
+- **Result:** We updated the om.html, print_bom.html, print_project.html, and project_detail.html templates. Now, if a part is marked as OBSOLETE or has been soft-deleted, it visually appears in BOM tables with a red DEL or OBS badge, alerting users not to spec it for new designs.

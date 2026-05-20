@@ -45,6 +45,9 @@ db.init_db()
 # Backup on startup — before any user changes
 utils.backup_db(db.DB_PATH, reason='startup')
 
+# Archive old change logs to keep the DB lean
+utils.archive_old_change_logs(db.DB_PATH, months_to_keep=12)
+
 # ── Identity middleware ────────────────────────────────────────────────────────
 IDENTITY_COOKIE = 'lems_user'
 SKIP_IDENTITY   = {'/identity', '/static', '/favicon.ico', '/api/'}
@@ -66,6 +69,8 @@ class IdentityMiddleware(BaseHTTPMiddleware):
 app.add_middleware(IdentityMiddleware)
 
 UPLOAD_TMP      = os.path.join(os.path.dirname(__file__), "_tmp_upload")
+ATTACHMENTS_DIR = os.path.join(os.path.dirname(__file__), "attachments")
+os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
 IMPORT_MAX_BYTES = 50 * 1024 * 1024   # 50 MB — more than enough for any real parts DB
 
 async def _read_upload(file: UploadFile) -> tuple[bool, bytes | str]:
@@ -778,6 +783,11 @@ async def api_parts_search(q: str = '', db_conn: sqlite3.Connection = Depends(ge
         'part_id': p['part_id'], 'plain_desc': p['plain_desc'],
         'type': p['type'], 'unit_cost': p['unit_cost'], 'uom': p['uom'],
     } for p in parts[:60]])
+
+@app.get("/api/parts/{part_id:path}/cost-history")
+async def api_part_cost_history(part_id: str, db_conn: sqlite3.Connection = Depends(get_db)):
+    history = db.get_part_cost_history(part_id)
+    return JSONResponse(history)
 
 # ── Run ────────────────────────────────────────────────────────────────────────
 

@@ -194,22 +194,22 @@ def test_upsert_part_update():
     assert part['plain_desc'] == 'Updated Widget'
 
 
-def test_delete_part_blocked_when_child_in_bom():
+def test_delete_part_allowed_when_child_in_bom():
     with db.get_conn() as conn:
         _insert_parts(conn, ('ASSY','ASSY'), ('CHILD','PRT'))
         conn.execute("INSERT INTO bom (parent_id, child_id, qty) VALUES ('ASSY','CHILD',1)")
 
     ok, _ = db.delete_part('CHILD')
-    assert not ok
+    assert ok
 
 
-def test_delete_part_blocked_when_has_bom_children():
+def test_delete_part_allowed_when_has_bom_children():
     with db.get_conn() as conn:
         _insert_parts(conn, ('ASSY','ASSY'), ('CHILD','PRT'))
         conn.execute("INSERT INTO bom (parent_id, child_id, qty) VALUES ('ASSY','CHILD',1)")
 
     ok, _ = db.delete_part('ASSY')
-    assert not ok
+    assert ok
 
 
 def test_update_part_field_pkg_cost_recalcs_unit_cost():
