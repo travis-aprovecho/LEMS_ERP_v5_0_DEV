@@ -1694,9 +1694,12 @@ def generate_pick_list(project_id: str) -> list[dict]:
         ).fetchall()
         
         pick_status = {
-            r['part_id']: bool(r['picked'])
+            r['part_id']: {
+                'picked': bool(r['picked']),
+                'picked_qty': float(r['picked_qty'] or 0.0)
+            }
             for r in conn.execute(
-                "SELECT part_id, picked FROM project_pick_status WHERE project_id=?",
+                "SELECT part_id, picked, picked_qty FROM project_pick_status WHERE project_id=?",
                 (project_id,)
             ).fetchall()
         }
@@ -1744,6 +1747,7 @@ def generate_pick_list(project_id: str) -> list[dict]:
             on_hand  = float(p['qty_on_hand']  or 0) if p else 0
             on_order = float(p['qty_on_order'] or 0) if p else 0
             shortage = max(0.0, net_qty - on_hand - on_order)
+            ps = pick_status.get(pid, {})
             result.append({
                 **row,
                 'total_qty':  net_qty,
@@ -1755,7 +1759,8 @@ def generate_pick_list(project_id: str) -> list[dict]:
                 'supplier':   p['supplier']    if p else '',
                 'supplier_pn':p['supplier_pn'] if p else '',
                 'category':   p['category']    if p else '',
-                'picked':     pick_status.get(pid, False),
+                'picked':     ps.get('picked', False),
+                'picked_qty': ps.get('picked_qty', 0.0),
             })
 
     return result
@@ -2263,7 +2268,16 @@ def get_global_need() -> dict[str, float]:
         pick = generate_pick_list(row['project_id'])
         for p in pick:
             pid = p['part_id']
-            aggregated[pid] = aggregated.get(pid, 0.0) + p['total_qty']
+            # Exclude items that have already been picked, because their quantities
+            # have already been deducted from qty_on_hand in inventory.
+            unpicked_qty = p['total_qty'] - p.get('picked_qty', 0.0)
+            
+            # Fallback for legacy picks where picked=True but picked_qty=0
+            if p.get('picked') and p.get('picked_qty', 0.0) == 0.0:
+                unpicked_qty = 0.0
+                
+            if unpicked_qty > 0:
+                aggregated[pid] = aggregated.get(pid, 0.0) + unpicked_qty
 
     return {k: max(0.0, v) for k, v in aggregated.items() if v > 0}
 
