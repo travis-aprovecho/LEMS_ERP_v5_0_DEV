@@ -4,6 +4,7 @@
 {% block page_title %}{{ project.project_id }}{% endblock %}
 {% block topbar_actions %}
   <button onclick="cloneProject()" class="btn btn-secondary btn-sm" title="Duplicate this project">⎘ Clone</button>
+  <button onclick="showProjectAttachments('{{ project.project_id }}')" class="btn btn-secondary btn-sm" title="View all attachments for this project">📂 Project Attachments</button>
   <a href="/print/project/{{ project.project_id }}" target="_blank"
      class="btn btn-secondary btn-sm">🖨 Packing List</a>
   <a href="/projects/{{ project.project_id }}/quote"
@@ -442,6 +443,23 @@
     <div class="bom-modal-footer">
       <span id="bom-modal-count" class="muted small"></span>
       <a id="bom-modal-link" href="#" style="font-size:11px;color:var(--accent)">Open in BOM Editor →</a>
+    </div>
+  </div>
+</div>
+
+{# ── Project Attachments modal ── #}
+<div id="attachments-modal-backdrop" class="bom-modal-backdrop"
+     onclick="if(event.target===this) document.getElementById('attachments-modal-backdrop').classList.remove('open')">
+  <div class="bom-modal" role="dialog" aria-modal="true" style="max-height:80vh;display:flex;flex-direction:column;">
+    <div class="bom-modal-header">
+      <div>
+        <div class="bom-modal-title">Project Attachments</div>
+        <div class="bom-modal-pid">{{ project.project_id }}</div>
+      </div>
+      <button class="bom-modal-close" onclick="document.getElementById('attachments-modal-backdrop').classList.remove('open')" aria-label="Close">✕</button>
+    </div>
+    <div class="bom-modal-body" id="attachments-modal-body" style="padding:16px;overflow-y:auto;flex:1;">
+      <div style="text-align:center;color:var(--text2)">Loading…</div>
     </div>
   </div>
 </div>

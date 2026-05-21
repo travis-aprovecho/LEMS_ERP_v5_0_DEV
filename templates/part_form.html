@@ -127,6 +127,19 @@
     </div>
   </div>
 
+  {% if not is_new %}
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-header" style="display:flex; align-items:center;">
+      <h2>Attachments & Drawings</h2>
+      <button type="button" class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="document.getElementById('file-upload').click()">+ Upload File</button>
+      <input type="file" id="file-upload" style="display: none;" onchange="uploadAttachment('{{ part.part_id }}', this)">
+    </div>
+    <div id="attachments-list" style="margin-top: 10px;">
+      <div class="muted small">Loading attachments...</div>
+    </div>
+  </div>
+  {% endif %}
+
   {% if is_built %}
   {# FAB/ASSY: only labor_hrs is meaningful here — supplier/cost fields hidden #}
   {# Pass required hidden fields so form submission is complete #}
@@ -337,5 +350,11 @@ async function showCostHistory(part_id) {
     tbody.innerHTML = '<tr><td colspan="3" class="alert-error" style="text-align:center">Error loading history.</td></tr>';
   }
 }
+
+{% if not is_new %}
+document.addEventListener('DOMContentLoaded', () => {
+  loadAttachments('{{ part.part_id }}');
+});
+{% endif %}
 </script>
 {% endblock %}

@@ -548,3 +548,38 @@ async function addOptional(partId, typeSelId, qtyInputId, cardId) {
   showToast(`${partId} added as ${itype}`);
   setTimeout(() => location.reload(), 800);
 }
+
+/* ── Project Attachments Modal ──────────────────────────────────────────────*/
+async function showProjectAttachments(projId) {
+  const backdrop = document.getElementById('attachments-modal-backdrop');
+  const body     = document.getElementById('attachments-modal-body');
+  
+  body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text2)">Loading…</div>';
+  backdrop.classList.add('open');
+  
+  try {
+    const res  = await fetch(`/api/projects/${encodeURIComponent(projId)}/attachments`);
+    const data = await res.json();
+    
+    if (!data || !data.length) {
+      body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text2)">No attachments found in this project\'s BOM.</div>';
+      return;
+    }
+    
+    body.innerHTML = `<table class="data-table">
+      <thead><tr><th style="width:150px">Part ID</th><th>Filename</th><th style="text-align:right; width:80px;">Size</th><th style="text-align:right; width:120px;">Uploaded</th></tr></thead>
+      <tbody>
+        ${data.map(a => `
+          <tr>
+            <td class="mono small"><a href="/parts/${encodeURIComponent(a.part_id)}/edit" target="_blank">${escapeHtml(a.part_id)}</a></td>
+            <td><a href="/attachments/${a.id}" target="_blank">${escapeHtml(a.original_filename)}</a></td>
+            <td class="small text-right">${(a.size_bytes / 1024).toFixed(1)} KB</td>
+            <td class="small text-right">${a.uploaded_at.split(' ')[0]}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+  } catch (e) {
+    body.innerHTML = `<div style="padding:40px;text-align:center;color:var(--red)">Failed to load attachments.</div>`;
+  }
+}

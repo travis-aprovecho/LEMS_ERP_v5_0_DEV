@@ -71,6 +71,8 @@ app.add_middleware(IdentityMiddleware)
 UPLOAD_TMP      = os.path.join(os.path.dirname(__file__), "_tmp_upload")
 ATTACHMENTS_DIR = os.path.join(os.path.dirname(__file__), "attachments")
 os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
+ATTACHMENTS_DIR = os.path.join(os.path.dirname(__file__), "attachments")
+os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
 IMPORT_MAX_BYTES = 50 * 1024 * 1024   # 50 MB — more than enough for any real parts DB
 
 async def _read_upload(file: UploadFile) -> tuple[bool, bytes | str]:
@@ -788,6 +790,59 @@ async def api_parts_search(q: str = '', db_conn: sqlite3.Connection = Depends(ge
 async def api_part_cost_history(part_id: str, db_conn: sqlite3.Connection = Depends(get_db)):
     history = db.get_part_cost_history(part_id)
     return JSONResponse(history)
+
+# ── Attachments ───────────────────────────────────────────────────────────────
+
+import uuid
+
+@app.post("/api/parts/{part_id:path}/attachments")
+async def api_upload_attachment(part_id: str, file: UploadFile = File(...), request: Request = None, db_conn: sqlite3.Connection = Depends(get_db)):
+    ok, content = await _read_upload(file)
+    if not ok: return jresp(False, content)
+    
+    att_id = str(uuid.uuid4())
+    filename = f"{att_id}_{file.filename}"
+    filepath = os.path.join(ATTACHMENTS_DIR, filename)
+    
+    with open(filepath, "wb") as f:
+        f.write(content)
+    
+    user = db.get_current_user()
+    db.add_part_attachment({
+        'id': att_id,
+        'part_id': part_id,
+        'filename': filename,
+        'original_filename': file.filename,
+        'mime_type': file.content_type,
+        'size_bytes': len(content),
+        'uploaded_by': user
+    })
+    return jresp(True, "Uploaded", id=att_id)
+
+@app.get("/api/parts/{part_id:path}/attachments")
+async def api_get_part_attachments(part_id: str, db_conn: sqlite3.Connection = Depends(get_db)):
+    return JSONResponse(db.get_part_attachments(part_id))
+
+@app.get("/api/projects/{project_id:path}/attachments")
+async def api_get_project_attachments(project_id: str, db_conn: sqlite3.Connection = Depends(get_db)):
+    return JSONResponse(db.get_project_attachments(project_id))
+
+@app.delete("/api/attachments/{att_id}")
+async def api_delete_attachment(att_id: str, db_conn: sqlite3.Connection = Depends(get_db)):
+    row = db.delete_part_attachment(att_id)
+    if not row: return jresp(False, "Not found")
+    filepath = os.path.join(ATTACHMENTS_DIR, row['filename'])
+    if os.path.exists(filepath): os.remove(filepath)
+    return jresp(True, "Deleted")
+
+@app.get("/attachments/{att_id}")
+async def serve_attachment(att_id: str, db_conn: sqlite3.Connection = Depends(get_db)):
+    with db.get_conn() as conn:
+        row = conn.execute("SELECT * FROM part_attachments WHERE id=?", (att_id,)).fetchone()
+        if not row: return HTMLResponse("Not found", 404)
+        filepath = os.path.join(ATTACHMENTS_DIR, row['filename'])
+        if not os.path.exists(filepath): return HTMLResponse("File missing", 404)
+        return FileResponse(filepath, filename=row['original_filename'])
 
 # ── Run ────────────────────────────────────────────────────────────────────────
 

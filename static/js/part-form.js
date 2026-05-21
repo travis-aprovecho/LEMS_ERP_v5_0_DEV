@@ -130,3 +130,73 @@ function clearAllFields() {
 document.addEventListener('DOMContentLoaded', loadFieldValues);
 updatePreview();
 toggleAltCost();
+
+/* ── Attachments ─────────────────────────────────────────────────────────────*/
+async function loadAttachments(partId) {
+  if (!partId || partId === '—') return;
+  const list = document.getElementById('attachments-list');
+  if (!list) return;
+  
+  try {
+    const res = await fetch(`/api/parts/${encodeURIComponent(partId)}/attachments`);
+    const data = await res.json();
+    if (!data.length) {
+      list.innerHTML = '<div class="muted small">No attachments found.</div>';
+      return;
+    }
+    
+    list.innerHTML = `<table class="data-table" style="margin-top: 8px;">
+      <thead><tr><th>Filename</th><th style="text-align:right; width:60px;">Size</th><th style="width:40px;"></th></tr></thead>
+      <tbody>
+        ${data.map(a => `
+          <tr>
+            <td><a href="/attachments/${a.id}" target="_blank">${escapeHtml(a.original_filename)}</a></td>
+            <td class="small text-right">${(a.size_bytes / 1024).toFixed(1)} KB</td>
+            <td style="text-align:center;">
+              <button type="button" class="btn btn-ghost btn-sm" style="color:var(--danger); padding:2px 6px;" onclick="deleteAttachment('${a.id}', '${partId}')" title="Delete">✕</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+  } catch (e) {
+    list.innerHTML = '<div class="alert-error">Error loading attachments.</div>';
+  }
+}
+
+async function uploadAttachment(partId, inputEl) {
+  if (!inputEl.files || !inputEl.files[0]) return;
+  const file = inputEl.files[0];
+  if (file.size > 50 * 1024 * 1024) {
+    showToast('File too large (max 50MB)', 'error');
+    inputEl.value = '';
+    return;
+  }
+  
+  const fd = new FormData();
+  fd.append('file', file);
+  
+  const list = document.getElementById('attachments-list');
+  if (list) list.innerHTML = '<div class="muted small">Uploading...</div>';
+  
+  const res = await apiFetch(`/api/parts/${encodeURIComponent(partId)}/attachments`, fd);
+  inputEl.value = '';
+  if (res.ok) {
+    showToast('File uploaded', 'success');
+    loadAttachments(partId);
+  } else {
+    showToast(res.msg || 'Upload failed', 'error');
+    loadAttachments(partId);
+  }
+}
+
+async function deleteAttachment(attId, partId) {
+  if (!confirm('Delete this attachment?')) return;
+  const res = await apiFetch(`/api/attachments/${encodeURIComponent(attId)}`, null, 'DELETE');
+  if (res.ok) {
+    showToast('Deleted', 'success');
+    loadAttachments(partId);
+  } else {
+    showToast(res.msg || 'Delete failed', 'error');
+  }
+}
