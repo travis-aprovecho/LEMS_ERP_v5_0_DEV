@@ -1,4 +1,4 @@
-# LEMS ERP — v4.0.3
+# LEMS ERP — v5.0.0
 
 **Laboratory Emissions Monitoring System — Internal ERP**
 Aprovecho Research Center · aprovecho.org
@@ -105,6 +105,8 @@ lems_erp/
 - Structured part IDs: `TYPE-CATEGORY-DESC-SIZE-VARIANT`
 - Primary and alternate supplier fields per part —
   toggle "use alternate supplier cost" to activate alt pricing in BOM rollups
+- Part Attachments: Upload `.pdf`, `.png`, and other drawings directly to a part (stored locally)
+- Cost History: Automatic chronological tracking of all part cost updates
 - Last cost update date — auto-stamped when prices change
 - Part statuses: `ACTIVE`, `OBSOLETE`
 - Master Data Replace import — full wipe-and-reload of parts/BOM from CSV,
@@ -124,6 +126,7 @@ lems_erp/
 - Clone `STD_PKG_TEMPLATE` to start new projects from the standard build
 - Line item types: Standard / Option / Additional / Deleted
 - Pick list with shortage tracking and commit/return inventory workflow
+- Project Attachments: A single view that aggregates all file attachments for all parts in the project's BOM
 
 ### Quote Builder
 Located at: **Projects → [Project] → Quote**
@@ -226,6 +229,11 @@ pricing calculations, and flat BOM explosion logic.
 ---
 
 ## Version History
+
+### v5.0.0
+- **Part Attachments**: Local file upload and storage for part drawings/attachments, with a project-level aggregation modal.
+- **Cost History**: Chronological tracking and UI modal for part cost changes.
+- **Inventory Need Fix**: Global need accurately excludes items already picked in active projects to prevent inflated re-order counts.
 
 ### v4.0.3
 - Fixed `_current_user` global replaced with `contextvars.ContextVar` — prevents

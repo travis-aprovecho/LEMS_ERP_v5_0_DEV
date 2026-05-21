@@ -2,6 +2,22 @@
 
 ---
 
+## v5.0.0 — Part Attachments & Cost History
+
+### Part Attachments
+- **Local File Storage:** Added the ability to upload and store files (`.pdf`, `.png`, etc.) directly on the local filesystem within an `attachments/` directory.
+- **Part Editor Integration:** Added an "Attachments & Drawings" card to the Part Editor UI, allowing users to upload, view, and delete attachments per part.
+- **Project Order Sheet Integration:** Added a "📂 Project Attachments" button and modal to the Project detail view. This aggregates all attachments for every part inside the project's current BOM hierarchy.
+
+### Cost History
+- **Cost History Tracking:** Cost updates (when `pkg_cost` or `pkg_cost_2` changes) are automatically logged in a `part_cost_history` table.
+- **Cost History UI:** Added a modal to the Part Editor showing the chronological history of cost changes (Date, Old Cost, New Cost).
+
+### Global Need Calculation Fix
+- **Picked Items Deduction:** The `global_need` calculation now automatically deducts the `picked_qty` of items from active projects. This prevents the "Need to Order" calculation from artificially inflating when items are picked and removed from `qty_on_hand` inventory.
+
+---
+
 ## v4.0.2 — Post-Audit Cleanups
 _Applied after full codebase review; all 53 tests still passing_
 
