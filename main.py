@@ -228,10 +228,12 @@ async def part_save(request: Request,
             oid = r_result  # continue saving to new ID
         ok, result = db.upsert_part(data, orig_part_id=oid)
         if ok:
+            db.run_rollup_for_part_and_ancestors(result)
             return RedirectResponse(f"/parts/{result}/edit?msg=Saved+successfully", 303)
     else:
         ok, result = db.upsert_part(data)
         if ok:
+            db.run_rollup_for_part_and_ancestors(result)
             # Stay on new-part screen so "Save & Add Another" remains available
             return RedirectResponse(f"/parts/new?msg=Saved: {result}", 303)
     return RedirectResponse(f"/parts/new?err={result}", 303)
@@ -244,6 +246,8 @@ async def part_delete(part_id: str, db_conn: sqlite3.Connection = Depends(get_db
 @app.post("/parts/inline-edit")
 async def part_inline_edit(part_id: str = Form(), field: str = Form(), value: str = Form(), db_conn: sqlite3.Connection = Depends(get_db)):
     ok, msg = db.update_part_field(part_id, field, value)
+    if ok and field in ('pkg_cost', 'pkg_size', 'unit_cost', 'labor_hrs', 'pkg_cost_2', 'pkg_size_2', 'unit_cost_2'):
+        db.run_rollup_for_part_and_ancestors(part_id)
     return jresp(ok, msg)
 
 # ── BOM ────────────────────────────────────────────────────────────────────────
@@ -953,11 +957,13 @@ async def inventory_page(request: Request, msg: str = '', err: str = '', db_conn
     parts       = db.get_inventory_list()
     projects    = db.get_all_projects()
     global_need = db.get_global_need()
+    project_needs = db.get_project_needs_map()
     return templates.TemplateResponse("inventory.html", {
         "request": request, "parts": parts, "projects": projects,
         "categories": db.CATEGORIES,
         "global_need":      global_need,
         "global_need_json": json.dumps(global_need),
+        "project_needs_json": json.dumps(project_needs),
         "msg": msg, "err": err,
     })
 

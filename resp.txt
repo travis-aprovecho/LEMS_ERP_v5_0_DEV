@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LEMS ERP — Who are you?</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <style>
+    body { display:flex; align-items:center; justify-content:center; min-height:100vh; background:var(--bg0); }
+    .id-card {
+      background:var(--bg1); border:1px solid var(--border);
+      border-radius:14px; padding:40px 44px; width:100%; max-width:380px;
+      box-shadow:var(--shadow);
+    }
+    .id-logo {
+      font-family:'IBM Plex Mono',monospace; font-size:18px;
+      color:var(--accent); letter-spacing:.08em; margin-bottom:6px;
+    }
+    .id-sub { font-size:12px; color:var(--text2); margin-bottom:28px; }
+    .id-heading { font-size:15px; font-weight:600; color:var(--text0); margin-bottom:4px; }
+    .id-hint { font-size:12px; color:var(--text2); margin-bottom:20px; }
+    .id-input {
+      width:100%; padding:10px 12px; font-size:14px;
+      background:var(--bg2); border:1px solid var(--border2);
+      color:var(--text0); border-radius:8px; margin-bottom:16px;
+      transition:border-color .12s, box-shadow .12s;
+    }
+    .id-input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(0,200,160,.15); }
+    .id-btn {
+      width:100%; padding:10px; font-size:13px; font-weight:500;
+      background:var(--accent); color:var(--bg0); border:none;
+      border-radius:8px; cursor:pointer; transition:opacity .12s;
+    }
+    .id-btn:hover { opacity:.88; }
+    .id-err { font-size:12px; color:var(--red); margin-bottom:12px; }
+  </style>
+</head>
+<body>
+  <div class="id-card">
+    <div class="id-logo">LEMS ERP</div>
+    <div class="id-sub">TravisDesktop</div>
+    <div class="id-heading">Who are you?</div>
+    <div class="id-hint">This is a one-time prompt. Your name will be saved on this device.</div>
+    
+    <form method="post" action="/identity">
+      <input type="hidden" name="next" value="/inventory">
+      <input class="id-input" type="text" name="name"
+             placeholder="Your name"
+             value="TravisDesktop"
+             autofocus autocomplete="off" maxlength="64">
+      <button class="id-btn" type="submit">Continue →</button>
+    </form>
+  </div>
+</body>
+</html>

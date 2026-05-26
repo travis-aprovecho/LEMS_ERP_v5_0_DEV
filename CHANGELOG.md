@@ -13,8 +13,13 @@
 - **Cost History Tracking:** Cost updates (when `pkg_cost` or `pkg_cost_2` changes) are automatically logged in a `part_cost_history` table.
 - **Cost History UI:** Added a modal to the Part Editor showing the chronological history of cost changes (Date, Old Cost, New Cost).
 
-### Global Need Calculation Fix
-- **Picked Items Deduction:** The `global_need` calculation now automatically deducts the `picked_qty` of items from active projects. This prevents the "Need to Order" calculation from artificially inflating when items are picked and removed from `qty_on_hand` inventory.
+### Inventory Need & Pick List Improvements
+- **Project Need Toggle:** Inventory / Count Sheet view now includes a toggle to switch between "Global Need" (across all projects) and "Project Need" (isolated to a specific project).
+- **Picked Items Deduction:** The `global_need` calculation now accurately deducts the `picked_qty` of items from active projects to prevent "Need to Order" from artificially inflating.
+- **Partial Picking Support:** The Pick List interface now supports partial picking and returning of remaining items.
+
+### Backend Infrastructure
+- **Strict Guardrails Audit:** Performed a comprehensive codebase audit to enforce `change_log` logging on all mutating functions and automatic BOM cost rollups after inline edits.
 
 ---
 

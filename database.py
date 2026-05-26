@@ -290,6 +290,37 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_bom_parent ON bom(parent_id);
         CREATE INDEX IF NOT EXISTS idx_project_items_pid ON project_items(project_id);
         CREATE INDEX IF NOT EXISTS idx_project_pick_pid ON project_pick_status(project_id);
+        
+        CREATE TABLE IF NOT EXISTS part_cost_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            part_id TEXT NOT NULL REFERENCES parts(part_id) ON DELETE CASCADE,
+            old_cost REAL NOT NULL,
+            new_cost REAL NOT NULL,
+            changed_at TEXT DEFAULT (datetime('now'))
+        );
+        
+        CREATE TABLE IF NOT EXISTS part_attachments (
+            id TEXT PRIMARY KEY,
+            part_id TEXT NOT NULL REFERENCES parts(part_id) ON DELETE CASCADE,
+            filename TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            uploaded_by TEXT NOT NULL,
+            uploaded_at TEXT DEFAULT (datetime('now'))
+        );
+        
+        CREATE TABLE IF NOT EXISTS change_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts          TEXT NOT NULL,
+            user        TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id   TEXT NOT NULL,
+            action      TEXT NOT NULL,
+            field       TEXT,
+            old_val     TEXT,
+            new_val     TEXT
+        );
         """)
         # Migrate existing DBs that may be missing newer columns
         _run_migrations(conn)
@@ -1804,12 +1835,18 @@ def update_inventory(part_id: str, qty_on_hand: float = None,
                      qty_on_order: float = None,
                      order_eta: str = None) -> tuple[bool, str]:
     with get_conn() as conn:
+        logs = []
         if qty_on_hand  is not None:
             conn.execute("UPDATE parts SET qty_on_hand=?  WHERE part_id=?", (qty_on_hand,  part_id))
+            logs.append(f"OH:{qty_on_hand}")
         if qty_on_order is not None:
             conn.execute("UPDATE parts SET qty_on_order=? WHERE part_id=?", (qty_on_order, part_id))
+            logs.append(f"OO:{qty_on_order}")
         if order_eta    is not None:
             conn.execute("UPDATE parts SET order_eta=?    WHERE part_id=?", (order_eta,    part_id))
+            logs.append(f"ETA:{order_eta}")
+        if logs:
+            log_change(conn, 'part', part_id, 'UPDATE_INVENTORY', new_val=" ".join(logs))
     return True, "Inventory updated."
 
 def commit_picks(project_id: str, picks: list[dict]) -> tuple[bool, str]:
@@ -1868,6 +1905,7 @@ def commit_picks(project_id: str, picks: list[dict]) -> tuple[bool, str]:
                         "DELETE FROM project_pick_status WHERE project_id=? AND part_id=?",
                         (project_id, part_id)
                     )
+                log_change(conn, 'project', project_id, 'COMMIT_PICK', field=part_id, old_val=old_qty, new_val=new_qty)
 
         return True, "Picks applied and inventory updated."
     except Exception as e:
@@ -1925,6 +1963,7 @@ def clone_project(source_id: str, new_id: str) -> tuple[bool, str]:
             INSERT INTO projects (project_id, status, customer, notes, labor_rate, markup)
             VALUES (?,?,?,?,?,?)
         """, (new_id, 'ACTIVE', '', '', source['labor_rate'], source['markup']))
+        log_change(conn, 'project', new_id, 'CLONE_PROJECT', old_val=source_id)
 
         # Clone line items including box_num and discounts
         items = conn.execute(
@@ -2253,6 +2292,26 @@ def get_project_summary(project_id: str) -> 'Optional[dict]':
         'total_labor_hrs': total_lbr + other_lbr_hrs,
     }
 
+def get_project_needs_map() -> dict[str, dict[str, float]]:
+    with get_conn() as conn:
+        active = conn.execute("SELECT project_id FROM projects WHERE status='ACTIVE'").fetchall()
+    
+    project_needs = {}
+    for row in active:
+        pid = row['project_id']
+        pick = generate_pick_list(pid)
+        needs = {}
+        for p in pick:
+            part_id = p['part_id']
+            unpicked_qty = p['total_qty'] - p.get('picked_qty', 0.0)
+            if p.get('picked') and p.get('picked_qty', 0.0) == 0.0:
+                unpicked_qty = 0.0
+            if unpicked_qty > 0:
+                needs[part_id] = max(0.0, unpicked_qty)
+        if needs:
+            project_needs[pid] = needs
+    return project_needs
+
 def get_global_need() -> dict[str, float]:
     """
     Net qty of each PRT/RAW needed across all ACTIVE projects combined.
@@ -2315,6 +2374,7 @@ def get_or_create_quote(project_id: str) -> dict:
             conn.execute(
                 "INSERT INTO project_quotes (project_id) VALUES (?)", (project_id,)
             )
+            log_change(conn, 'quote', project_id, 'CREATE_QUOTE')
             row = conn.execute(
                 "SELECT * FROM project_quotes WHERE project_id = ?", (project_id,)
             ).fetchone()
@@ -2336,6 +2396,7 @@ def save_quote_totals(project_id: str, quoted_total: float, gross_margin_pct: fl
                    WHERE project_id=?""",
                 (quoted_total, gross_margin_pct, total_internal, project_id)
             )
+            log_change(conn, 'quote', project_id, 'SAVE_TOTALS', new_val=f"Total: {quoted_total:.2f}")
     except Exception as e:
         logging.warning("save_quote_totals failed for %s: %s", project_id, e)
 
@@ -2461,6 +2522,7 @@ def increment_quote_version(project_id: str) -> int:
         row = conn.execute(
             "SELECT version FROM project_quotes WHERE project_id = ?", (project_id,)
         ).fetchone()
+        log_change(conn, 'quote', project_id, 'INCREMENT_VERSION', new_val=row['version'])
     return row['version'] if row else 1
 
 # ── Optional Items Suggestion ─────────────────────────────────────────────────
@@ -2631,6 +2693,7 @@ def save_project_packing(project_id: str, boxes: list[dict], pallets: list[dict]
                 "INSERT INTO project_pallets (project_id, pallet_num, weight, dimensions) VALUES (?,?,?,?)",
                 (project_id, p.get('pallet_num',''), float(p.get('weight') or 0), p.get('dimensions',''))
             )
+        log_change(conn, 'project', project_id, 'SAVE_PACKING', new_val=f"{len(boxes)} boxes, {len(pallets)} pallets")
     return True, "Packing info saved."
 
 
@@ -2676,6 +2739,7 @@ def add_part_attachment(data: dict) -> bool:
             INSERT INTO part_attachments (id, part_id, filename, original_filename, mime_type, size_bytes, uploaded_by)
             VALUES (:id, :part_id, :filename, :original_filename, :mime_type, :size_bytes, :uploaded_by)
         ''', data)
+        log_change(conn, 'part', data['part_id'], 'ADD_ATTACHMENT', field=data['original_filename'])
         return True
 
 def delete_part_attachment(att_id: str) -> dict | None:
@@ -2683,4 +2747,5 @@ def delete_part_attachment(att_id: str) -> dict | None:
         row = conn.execute("SELECT * FROM part_attachments WHERE id=?", (att_id,)).fetchone()
         if not row: return None
         conn.execute("DELETE FROM part_attachments WHERE id=?", (att_id,))
+        log_change(conn, 'part', row['part_id'], 'DELETE_ATTACHMENT', field=row['original_filename'])
         return dict(row)

@@ -76,7 +76,7 @@
       </thead>
       <tbody>
       {% for p in pick %}
-      <tr class="pick-row {% if p.shortage > 0 %}row-shortage{% endif %} {% if p.picked %}picked{% endif %}"
+      <tr class="pick-row {% if p.shortage > 0 %}row-shortage{% endif %} {% if p.picked and p.picked_qty >= p.total_qty %}picked{% endif %}"
           data-shortage="{{ p.shortage }}"
           data-part-id="{{ p.part_id }}"
           data-qty="{{ p.total_qty }}"
@@ -111,14 +111,21 @@
         <td class="mono text-right">${{ '%.2f'|format(p.unit_cost) }}</td>
         <td class="mono text-right text-accent">${{ '%.2f'|format(p.ext_cost) }}</td>
         <td style="text-align:center">
-          {% if p.picked %}
+          {% if p.picked and p.picked_qty >= p.total_qty %}
             <span style="color:var(--accent);font-weight:bold;margin-right:8px;font-size:12px">✓ Picked</span>
             <button onclick="returnItem('{{ p.part_id }}')" class="btn btn-sm no-print" style="padding:2px 6px;font-size:10px;background:var(--bg3);color:var(--text1)">Return to Inv</button>
           {% else %}
+            {% if p.picked and p.picked_qty > 0 %}
+              <div style="margin-bottom:4px">
+                <span style="color:var(--amber);font-weight:bold;font-size:11px">✓ {{ p.picked_qty|round(2) }}/{{ p.total_qty|round(2) }}</span>
+                <button onclick="returnItem('{{ p.part_id }}')" class="btn btn-sm no-print" style="padding:2px 4px;font-size:9px;background:var(--bg3);color:var(--text1);margin-left:4px">Return</button>
+              </div>
+            {% endif %}
+            
             {% if p.on_hand <= 0 %}
               <span title="Cannot pick — no on-hand inventory" style="font-size:13px;opacity:0.5;cursor:not-allowed">🔒</span>
             {% else %}
-              <input type="checkbox" class="pick-check"
+              <input type="checkbox" class="pick-check" title="Pick remaining"
                      style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
             {% endif %}
           {% endif %}

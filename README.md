@@ -149,7 +149,8 @@ Pro-Forma view (customer-facing):
 ### Inventory & Count Sheet
 - Stock levels, on-order quantity, ETA
 - Count sheet mode (print-ready clean table)
-- Global need calculation across all active projects
+- Global need calculation across all active projects, properly accounting for partial picks
+- Dynamic toggle between "Global Need" and "Project Need" for targeted stock taking
 
 ### Admin
 - **Import:** CSV backup restore, SQLite `.db` file, Excel workbook (`.xlsx`)
@@ -233,7 +234,9 @@ pricing calculations, and flat BOM explosion logic.
 ### v5.0.0
 - **Part Attachments**: Local file upload and storage for part drawings/attachments, with a project-level aggregation modal.
 - **Cost History**: Chronological tracking and UI modal for part cost changes.
-- **Inventory Need Fix**: Global need accurately excludes items already picked in active projects to prevent inflated re-order counts.
+- **Inventory & Picking**: Pick list supports partial picking of items. Global need calculation dynamically adjusts based on what has been picked, preventing artificially inflated "need to order" values.
+- **Project Need Toggle**: Inventory interface allows users to switch between viewing system-wide global shortages or shortages scoped purely to one specific project.
+- **Strict Guardrails Audit**: Enforced database `change_log` logging for all system writes and ensured BOM rollups automatically recalculate costs upon any line-item modification.
 
 ### v4.0.3
 - Fixed `_current_user` global replaced with `contextvars.ContextVar` — prevents

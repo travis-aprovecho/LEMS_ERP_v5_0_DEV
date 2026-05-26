@@ -97,11 +97,12 @@
           <th class="sortable" data-col="4" style="max-width:110px">Supplier P/N <span class="sort-icon">↕</span></th>
           <th class="sortable" data-col="5">UOM <span class="sort-icon">↕</span></th>
           <th class="sortable" data-col="6" style="text-align:right">Unit Cost <span class="sort-icon">↕</span></th>
-          <th class="sortable" data-col="7" style="text-align:right">Global Need <span class="sort-icon">↕</span></th>
+          <th class="sortable need-col-global" data-col="7" style="text-align:right">Global Need <span class="sort-icon">↕</span></th>
+          <th class="sortable need-col-project" data-col="8" style="text-align:right;display:none">Project Need <span class="sort-icon">↕</span></th>
           <!-- Stock cols -->
-          <th class="sortable stock-col" data-col="8" style="text-align:right">On Hand <span class="sort-icon">↕</span></th>
-          <th class="sortable stock-col" data-col="9" style="text-align:right">On Order <span class="sort-icon">↕</span></th>
-          <th class="sortable stock-col" data-col="10">ETA <span class="sort-icon">↕</span></th>
+          <th class="sortable stock-col" data-col="9" style="text-align:right">On Hand <span class="sort-icon">↕</span></th>
+          <th class="sortable stock-col" data-col="10" style="text-align:right">On Order <span class="sort-icon">↕</span></th>
+          <th class="sortable stock-col" data-col="11">ETA <span class="sort-icon">↕</span></th>
           <!-- Count cols -->
           <th class="count-col" style="text-align:right;display:none">On Hand</th>
           <th class="count-col no-print" style="text-align:right;display:none">Actual Count</th>
@@ -140,8 +141,11 @@
 
         {# Global Need #}
         {% set gn = global_need.get(p.part_id, 0) %}
-        <td class="mono text-right {% if gn > 0 %}text-amber{% else %}muted{% endif %}">
+        <td class="mono text-right need-col-global {% if gn > 0 %}text-amber{% else %}muted{% endif %}">
           {{ gn if gn > 0 else '—' }}</td>
+
+        {# Project Need #}
+        <td class="mono text-right need-col-project" style="display:none"></td>
 
         <!-- Stock cols -->
         <td class="mono text-right inv-cell stock-col
@@ -230,9 +234,10 @@
   .count-col   { display: table-cell !important; }
   .print-only  { display: table-cell !important; }
 
-  /* Hide Unit Cost and Global Need in count mode — keep list clean */
+  /* Hide Unit Cost, Global Need, and Project Need in count mode — keep list clean */
   #inv-table th:nth-child(7), #inv-table td:nth-child(7),  /* Unit Cost */
-  #inv-table th:nth-child(8), #inv-table td:nth-child(8)   /* Global Need */
+  #inv-table th.need-col-global, #inv-table td.need-col-global,
+  #inv-table th.need-col-project, #inv-table td.need-col-project
   { display: none !important; }
 
   #inv-table { width: 100%; border-collapse: collapse; table-layout: auto; }
@@ -252,6 +257,7 @@
 </style>
 <script>
 const GLOBAL_NEED = {{ global_need_json | safe }};
+const PROJECT_NEEDS = {{ project_needs_json | safe }};
 let currentMode   = 'stock';
 let projectFilter = null;   // set of part_ids when a project is selected
 
@@ -274,6 +280,8 @@ async function applyProjectScope() {
   const projId = document.getElementById('proj-scope').value;
   if (!projId) {
     projectFilter = null;
+    document.querySelectorAll('.need-col-global').forEach(el => el.style.display = '');
+    document.querySelectorAll('.need-col-project').forEach(el => el.style.display = 'none');
   } else {
     try {
       const res = await fetch(`/api/project-parts/${encodeURIComponent(projId)}`);
@@ -282,6 +290,22 @@ async function applyProjectScope() {
     } catch(e) {
       projectFilter = null;
     }
+    
+    // Set project need values
+    const pNeeds = PROJECT_NEEDS[projId] || {};
+    document.querySelectorAll('.inv-row').forEach(row => {
+        const pid = row.dataset.partId;
+        const pn = pNeeds[pid] || 0;
+        row.dataset.projectNeed = pn;
+        const td = row.querySelector('td.need-col-project');
+        if (td) {
+            td.textContent = pn > 0 ? pn : '—';
+            td.className = 'mono text-right need-col-project ' + (pn > 0 ? 'text-amber' : 'muted');
+        }
+    });
+
+    document.querySelectorAll('.need-col-global').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.need-col-project').forEach(el => el.style.display = '');
   }
   // Update print scope label
   const sel = document.getElementById('proj-scope');
@@ -309,7 +333,9 @@ function applyFilters() {
     const matchProj    = !projectFilter || projectFilter.has(pid);
     const matchSearch  = !search  || pid.toLowerCase().includes(search) || desc.includes(search) || sup.includes(search);
     const matchCat     = !cat     || catVal === cat;
-    const matchShort   = !shortage || (onHand < need && unitCost > 0);
+    
+    const activeNeed   = document.getElementById('proj-scope').value ? (parseFloat(row.dataset.projectNeed) || 0) : need;
+    const matchShort   = !shortage || (onHand < activeNeed && unitCost > 0);
 
     const show = matchProj && matchSearch && matchCat && matchShort;
     row.style.display = show ? '' : 'none';
@@ -396,7 +422,10 @@ function exportCountCSV() {
     .filter(r => r.style.display !== 'none');
   const isCount = currentMode === 'count';
   const headers = ['Part ID','Category','Description','Supplier','Supplier P/N','UOM',
-                   'Unit Cost','Global Need','On Hand'];
+                   'Unit Cost'];
+  const projId = document.getElementById('proj-scope').value;
+  headers.push(projId ? 'Project Need' : 'Global Need');
+  headers.push('On Hand');
   if (isCount) headers.push('Actual Count','Difference','Notes');
   else         headers.push('On Order','ETA');
   const lines = [headers.map(csvEscape).join(',')];
@@ -409,7 +438,7 @@ function exportCountCSV() {
     const spn    = row.cells[4]?.textContent.trim() || '';
     const uom    = row.cells[5]?.textContent.trim() || '';
     const cost   = row.cells[6]?.textContent.trim() || '';
-    const need   = row.dataset.globalNeed || '0';
+    const need   = projId ? (row.dataset.projectNeed || '0') : (row.dataset.globalNeed || '0');
     const oh     = row.dataset.onHand || '';
 
     const fields = [pid, cat, desc, sup, spn, uom, cost, need, oh];
@@ -455,7 +484,8 @@ document.querySelectorAll('.inv-cell').forEach(cell => {
       if (cell.dataset.invField === 'qty_on_hand') {
         const qty  = parseFloat(val) || 0;
         const row  = cell.closest('tr');
-        const need = parseFloat(row.dataset.globalNeed) || 0;
+        const projId = document.getElementById('proj-scope').value;
+        const need = parseFloat(projId ? row.dataset.projectNeed : row.dataset.globalNeed) || 0;
         const cost = parseFloat(row.dataset.unitCost)   || 0;
         row.classList.toggle('row-shortage', qty < need && cost > 0);
         cell.className = cell.className.replace(/text-(amber|accent)/g,'');
